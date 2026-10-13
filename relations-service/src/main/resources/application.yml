@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: relations-service
+  jackson:
+    time-zone: Asia/Shanghai
+server:
+  port: ${SERVER_PORT:8081}
+security:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY:file:./config/jwt-public.pem}
+    issuer: system-service
+  identity:
+    access-url: ${SYSTEM_ACCESS_URL:http://localhost:8080/auth/access}
+    connect-timeout: 2s
+    read-timeout: 3s
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}

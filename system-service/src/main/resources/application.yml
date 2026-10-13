@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: system-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/relations}
+    username: ${DB_USERNAME:relations}
+    password: ${DB_PASSWORD:}
+  flyway:
+    default-schema: relations
+    schemas: relations
+    locations: classpath:db/system
+  jackson:
+    time-zone: Asia/Shanghai
+server:
+  port: ${SERVER_PORT:8080}
+security:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY:file:./config/jwt-public.pem}
+    private-key: ${JWT_PRIVATE_KEY:file:./config/jwt-private.pem}
+    issuer: system-service
+    ttl: 7d
+  public-endpoints:
+    post:
+      - /auth/login
+      - /user/register
+app:
+  bootstrap-admin:
+    username: ${BOOTSTRAP_ADMIN_USERNAME:}
+    email: ${BOOTSTRAP_ADMIN_EMAIL:}
+    password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    phone: ${BOOTSTRAP_ADMIN_PHONE:}
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
