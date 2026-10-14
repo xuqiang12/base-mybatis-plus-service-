@@ -72,7 +72,15 @@
                 <targetPath>db/system</targetPath>
                 <filtering>false</filtering>
                 <includes>
-                    <include>1.0.0/V1__identity_foundation.sql</include>
+                    <include>1.0.0/V1_1__user.sql</include>
+                    <include>1.0.0/V1_2__role.sql</include>
+                    <include>1.0.0/V1_3__permission.sql</include>
+                    <include>1.0.0/V1_4__menu.sql</include>
+                    <include>1.0.0/V1_5__user_role.sql</include>
+                    <include>1.0.0/V1_6__role_permission.sql</include>
+                    <include>1.0.0/V1_7__menu_role.sql</include>
+                    <include>1.0.0/V1_8__menu_button.sql</include>
+                    <include>1.0.0/V1_9__seed.sql</include>
                 </includes>
             </resource>
         </resources>

@@ -29,7 +29,16 @@ base-mybatis-plus-service/
 ├── .mvn/settings.xml                项目 Maven 仓库配置
 ├── sql/                     集中维护 SQL，按发布版本分目录
 │   ├── README.md                    脚本用途、命名和执行说明
-│   └── 1.0.0/V1__identity_foundation.sql
+│   └── 1.0.0/                      首次初始化，按表拆分
+│       ├── V1_1__user.sql           用户账号
+│       ├── V1_2__role.sql           角色
+│       ├── V1_3__permission.sql     操作权限
+│       ├── V1_4__menu.sql           菜单
+│       ├── V1_5__user_role.sql      用户与角色关联
+│       ├── V1_6__role_permission.sql 角色与权限关联
+│       ├── V1_7__menu_role.sql      菜单与角色关联
+│       ├── V1_8__menu_button.sql    菜单按钮
+│       └── V1_9__seed.sql           初始权限数据
 ├── base-common/
 │   └── src/
 │       ├── main/java/com/base/common/
@@ -130,7 +139,7 @@ Invoke-RestMethod 'http://localhost:8081/health'
 
 原 `/auth/login`、`/auth/userInfo` 和用户角色菜单权限路径保留，但现归 system 的 8080 端口。新增 `GET /auth/access` 供业务服务查询认证主体，必须有有效 Token。签名算法由 HS256 切换为 RS256，旧 Token 需要重新登录获取。
 
-原数据库表和 Flyway 历史继续使用 `relations` schema；V1 文件名和内容保持不变，源码集中在根目录 `sql/1.0.0/`。system 的打包配置将它放到运行包的 `db/system/1.0.0/`，Flyway 继续从 `classpath:db/system` 递归加载。已有数据库由 system 配置连接，业务服务不直接读取这些表。新脚本按发布版本归档，并在所属服务的资源配置中登记，详见 [数据库脚本说明](sql/README.md)。
+数据库表和 Flyway 历史使用 `relations` schema。首次初始化脚本集中在根目录 `sql/1.0.0/`，按 8 张表拆分，另有 1 个初始权限数据脚本；每张表和全部字段都有中文数据库注释。拆分前已只读确认本机配置指向的数据库尚未初始化，实际数据库未执行迁移。system 的打包配置将这 9 个脚本放到运行包的 `db/system/1.0.0/`，Flyway 从 `classpath:db/system` 递归加载，按 1.1 到 1.9 执行。业务服务不直接读取身份表。已执行的迁移不修改，后续脚本按发布版本归档，并在所属服务的资源配置中登记；其他环境若已执行原单文件 V1，不能直接使用这组初始脚本替换历史，详见 [数据库脚本说明](sql/README.md)。
 
 ## 当前范围
 
@@ -346,7 +355,16 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | 文件 | 用途 |
 | --- | --- |
 | `sql/README.md` | 集中的 SQL 目录说明：发布版本、文件用途、命名和各服务打包执行方式 |
-| `sql/1.0.0/V1__identity_foundation.sql` | Flyway 首次迁移：建立 relations schema、8 张应用表、索引、约束和 18 个操作权限；不插入默认账户或密码 |
+| `sql/1.0.0/V1_1__user.sql` | 用户账号表及 relations schema，包含表和全部字段的中文注释 |
+| `sql/1.0.0/V1_2__role.sql` | 角色表及中文注释 |
+| `sql/1.0.0/V1_3__permission.sql` | 操作权限表及中文注释 |
+| `sql/1.0.0/V1_4__menu.sql` | 菜单表、父菜单索引及中文注释 |
+| `sql/1.0.0/V1_5__user_role.sql` | 用户与角色关联表、角色索引及中文注释 |
+| `sql/1.0.0/V1_6__role_permission.sql` | 角色与权限关联表、权限索引及中文注释 |
+| `sql/1.0.0/V1_7__menu_role.sql` | 菜单与角色关联表、菜单索引及中文注释 |
+| `sql/1.0.0/V1_8__menu_button.sql` | 菜单按钮表、菜单索引及中文注释 |
+| `sql/1.0.0/V1_9__seed.sql` | 初始化 18 个操作权限；不插入默认账户或密码 |
+| `system-service/src/test/java/com/base/system/FlywayMigrationTest.java` | 隔离数据库迁移测试：验证执行顺序、全部表和字段的注释、初始权限及重复执行 |
 | `base-common/src/test/java/com/base/foundation/FoundationHttpTest.java` | 4 项 HTTP 测试，检查统一返回、时间格式、字符串包装、参数校验、404/500 错误；测试中的 /probe 接口不会出现在正式服务 |
 | `system-service/src/test/java/com/base/system/IdentityHttpTest.java` | 18 项 HTTP 集成测试，覆盖登录、用户/角色/菜单/权限管理、授权变化、回滚、Token 失效、管理员初始化及并发保护 |
 | `system-service/src/test/java/com/base/system/CrossServiceHttpTest.java` | 3 项双服务真实 HTTP 测试，覆盖共享身份、授权和撤销、用户删除、路由与依赖隔离、统一服务故障 |
