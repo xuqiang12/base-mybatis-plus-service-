@@ -68,7 +68,7 @@
 
 同步解析依赖不等于服务已经启动。下一节才是启动后端。
 
-## 七、启动两个后端服务
+## 七、启动后端应用
 
 1. 在左侧项目目录依次展开：
 
@@ -82,7 +82,7 @@
    ```
 
 2. 打开 `SystemApplication.java`。
-3. 点击类或 `main` 方法旁边的 **绿色三角形**，选择运行 `SystemApplication`。
+3. 在右上角运行配置选择 **SystemApplication-local** 并运行；这个运行项会显式加载现有本机数据库和密钥配置。若从类旁绿色三角形新建运行项，须先在程序参数中补上后文的本机配置加载参数。
 4. 等控制台出现 `Started SystemApplication`。默认端口是 **8080**。
 5. 浏览器打开：
 
@@ -90,25 +90,25 @@
    http://localhost:8080/health
    ```
 
-6. 返回包含 `code: 0`、`service: "system-service"` 和 `status: "UP"` 的 JSON，说明统一管理服务可以响应。
-7. 再打开 `relations-service/src/main/java/com/base/relations/RelationsApplication.java`，同样点击运行。默认端口为 **8081**，检查地址为 `http://localhost:8081/health`。
+6. 返回包含 `code: 0`、`service: "system-service"` 和 `status: "UP"` 的 JSON，说明后端应用可以响应。
+7. 当前只启动这一个应用，后续亲友业务也放在 system 的 `modules/relations/` 中。
 
-如果运行配置之前固定选择了 JDK 8，在 **运行 → 编辑配置** 中分别选择两个 Application，把 JRE 改为项目 SDK 或 `temurin-21`。
+如果运行配置之前固定选择了 JDK 8，在 **运行 → 编辑配置** 中选择 `SystemApplication-local`，把 JRE 改为项目 SDK 或 `temurin-21`。
 
-运行前准备：system 需要 PostgreSQL、数据库参数、RSA 私钥及公钥；relations 只需要对应公钥和统一服务地址。生成密钥、管理员初始化及本机配置见 [基础规范与运行说明](基础规范与运行说明.md)。两个运行配置的环境变量分别填写，密钥推荐使用绝对文件路径。
+运行前准备：system 需要 PostgreSQL、数据库参数、RSA 私钥及公钥。生成密钥、管理员初始化及本机配置见 [基础规范与运行说明](基础规范与运行说明.md)。本机连接配置沿用现有 system 文件，密钥推荐使用绝对文件路径。
 
-使用本机文件时，复制对应模块的 `application-local.example.yml`。`application-local.yml` 不会打进 JAR，需在程序参数中填写 `--spring.profiles.active=local`，并通过 `--spring.config.additional-location=file:本机文件的绝对路径` 显式加载；完整例子见运行说明。
+使用本机文件时，复制 system 的 `application-local.example.yml`。`application-local.yml` 不会打进 JAR，需在程序参数中填写 `--spring.profiles.active=local`，并通过 `--spring.config.additional-location=file:本机文件的绝对路径` 显式加载；完整例子见运行说明。
 
-父工程、`base-common` 和 `base-security` 不提供运行入口。不要把两个服务的数据库或私钥配置混在一起；旧的 `JWT_SECRET` 已不使用。
+父工程、`base-common` 和 `base-security` 不提供运行入口。旧的 `RelationsApplication-local` 运行项已移除，`JWT_SECRET` 已不使用。
 
 ## 八、以后每天启动
 
 已经配置好的同一项目，通常只需要：
 
 1. 打开项目。
-2. 分别运行 `SystemApplication` 和 `RelationsApplication`，先启动统一管理服务。
-3. 打开 `http://localhost:8080/health` 和 `http://localhost:8081/health` 检查响应。
-4. 用完分别点击两个运行窗口中的红色停止按钮。
+2. 运行 `SystemApplication-local`。
+3. 打开 `http://localhost:8080/health` 检查响应。
+4. 用完点击运行窗口中的红色停止按钮。
 
 拉取代码后，如果 `pom.xml` 有变化，再重新加载 Maven。通常不用每次重新选 JDK 或重新下载全部依赖。
 
@@ -129,10 +129,9 @@
 | 一直显示「正在解析 Maven 依赖」 | 查看 Maven 同步输出；确认用户设置文件路径，按具体下载错误排查 |
 | 提示 Java 版本不支持或无法编译 Java 21 | 检查项目 SDK、Maven 导入 JDK、Maven 运行 JRE 是否都为 21 |
 | 找不到绿色运行按钮 | 确认 Maven 导入完成，打开对应服务的 Application 类 |
-| 提示端口被占用 | system 默认 8080、relations 默认 8081；先检查是否已运行过。更换 system 端口时同步修改 relations 的统一服务地址 |
+| 提示端口被占用 | 默认 8080；先检查是否已运行过，也可用 `--server.port=...` 更换端口 |
 | Maven 同步成功，但浏览器打不开接口 | 运行对应 Application 并查看启动日志；同步成功只说明项目导入完成 |
 | 提示找不到 PEM 密钥文件 | 检查运行配置中的 JWT_PUBLIC_KEY，system 还需 JWT_PRIVATE_KEY；优先填绝对文件路径 |
-| 亲友业务请求返回 503 | 检查 system 是否启动以及 SYSTEM_ACCESS_URL；健康检查成功不代表身份服务可访问 |
 
 ## 十一、可选：PowerShell 构建和运行
 
@@ -151,4 +150,4 @@ mvn.cmd -s .mvn/settings.xml clean verify
 & "$env:JAVA_HOME\bin\java.exe" -jar .\system-service\target\system-service-0.0.1-SNAPSHOT-exec.jar
 ```
 
-再开一个终端配置 JAVA_HOME 和公钥，运行 `relations-service/target/relations-service-0.0.1-SNAPSHOT-exec.jar`。数据库和密钥参数见运行说明，两个终端分别访问对应端口的 `/health`。终端运行时使用 `Ctrl+C` 停止；环境变量只影响当前终端，不改变系统默认 JDK。
+数据库和密钥参数见运行说明；使用本机文件时在 JAR 后加上 `--spring.profiles.active=local --spring.config.additional-location=file:F:/公司项目/gitee/base-mybatis-plus-service/system-service/src/main/resources/application-local.yml`。只访问 8080 的 `/health`。终端运行时使用 `Ctrl+C` 停止；环境变量只影响当前终端，不改变系统默认 JDK。

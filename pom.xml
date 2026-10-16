@@ -16,12 +16,11 @@
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>base-mybatis-plus-service</name>
-    <description>可逐步增加独立业务服务的轻量 Java 基础工程</description>
+    <description>按业务模块组织的单服务 Java 基础工程</description>
 
     <modules>
         <module>base-common</module>
         <module>base-security</module>
-        <module>relations-service</module>
         <module>system-service</module>
     </modules>
 

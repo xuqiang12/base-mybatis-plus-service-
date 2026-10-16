@@ -21,8 +21,6 @@ public class AccessService implements CurrentUserProvider {
     private final AccessMapper accessMapper;
 
     @Override
-    public LoginUser currentUser(int userId, String token) { return currentUser(userId); }
-
     public LoginUser currentUser(int userId) {
         var user = userMapper.selectById(userId);
         if (user == null || Boolean.TRUE.equals(user.getIsDeleted())) {

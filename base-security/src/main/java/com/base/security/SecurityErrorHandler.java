@@ -20,10 +20,6 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException e) throws IOException {
-        if (e instanceof IdentityServiceUnavailableException) {
-            write(response, 503, "统一身份服务暂不可用");
-            return;
-        }
         write(response, 401, "请先登录或登录已过期");
     }
     @Override

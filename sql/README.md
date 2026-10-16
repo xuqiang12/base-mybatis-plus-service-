@@ -45,10 +45,10 @@ sql/
 
 每份 SQL 在所属服务的 `pom.xml` 中登记。system 的资源配置将当前 9 个初始脚本从这个目录原样复制到运行包的 `db/system/1.0.0/`，Flyway 按已有 `classpath:db/system` 配置递归发现并执行：先建基础表，再建关联表，最后初始化权限。Flyway 的 `relations.flyway_schema_history` 记录已执行版本，后续启动会校验并跳过它们。
 
-以后新增 system 脚本时，在 `system-service/pom.xml` 的数据库资源 `includes` 中加入对应路径。其他服务的脚本由各自的资源配置选择，不能把整个目录的所有 SQL 无差别打进每个服务。
+以后新增 system 脚本时，在 `system-service/pom.xml` 的数据库资源 `includes` 中加入对应路径。当前只有一个运行服务，后续业务脚本统一由 system 登记和执行。
 
 服务源码目录不再维护另一份 SQL。`target/` 和 JAR 中的 SQL 是自动生成的打包副本，请修改本目录中的原文件。
 
-relations 当前没有业务数据库和迁移脚本，后续有实际表需求时再接入。当前建表仍由 system 启动时自动执行；不需要手动逐个执行这些 SQL。`FlywayMigrationTest` 使用隔离 H2 数据库验证 9 个脚本的执行顺序、8 张表和 37 个字段的注释、18 个初始权限以及重复迁移不重新执行；身份和跨服务测试继续验证业务行为。
+后续亲友业务作为 system 内部模块开发，当前没有业务表和业务迁移脚本。当前建表仍由 system 启动时自动执行；不需要手动逐个执行这些 SQL。`FlywayMigrationTest` 使用隔离 H2 数据库验证 9 个脚本的执行顺序、8 张表和 37 个字段的注释、18 个初始权限以及重复迁移不重新执行；身份和单服务 HTTP 测试继续验证业务行为。
 
 [返回项目说明](../README.md)

@@ -55,7 +55,7 @@ public class SecurityConfig {
                             } catch (NumberFormatException e) {
                                 throw new OAuth2AuthenticationException(new OAuth2Error("invalid_token"));
                             }
-                            LoginUser user = users.currentUser(userId, token.getTokenValue());
+                            LoginUser user = users.currentUser(userId);
                             var authorities = new ArrayList<>(user.permissions().stream()
                                     .map(code -> new SimpleGrantedAuthority("permission:" + code)).toList());
                             if (user.isSuperAdmin()) { authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN")); }
