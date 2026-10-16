@@ -13,13 +13,17 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-// 用户查询、维护和公开注册接口。
+// 用户查询与维护；旧密码注册入口仅供管理员调用。
 @Tag(name = "用户")
 @RestController
 @RequestMapping("/user")
 @RequiredArgsConstructor
 public class UserController {
     private final UserService service;
+    @PostMapping("/bindPhone")
+    public String bindPhone(@Valid @RequestBody UserRequests.BindPhone request, @AuthenticationPrincipal LoginUser user) {
+        return service.bindPhone(request, user);
+    }
     @GetMapping("/list")
     @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:list')")
     public PageResult<UserResponse> list(@Valid @ModelAttribute UserRequests.ListQuery query) { return service.list(query); }
@@ -36,5 +40,6 @@ public class UserController {
     @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:delete')")
     public String delete(@Valid @RequestBody IdRequest request, @AuthenticationPrincipal LoginUser user) { return service.delete(request.id(), user); }
     @PostMapping("/register")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
     public String register(@Valid @RequestBody UserRequests.Register request) { return service.register(request); }
 }

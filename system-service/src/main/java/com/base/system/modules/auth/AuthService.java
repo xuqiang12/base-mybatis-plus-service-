@@ -15,6 +15,7 @@ import org.springframework.security.oauth2.jwt.*;
 import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Locale;
 
 // 校验密码、签发 JWT 并提供用户与菜单权限信息。
 @Service
@@ -28,9 +29,21 @@ public class AuthService {
     private final MenuService menus;
 
     public Map<String, String> login(LoginRequest request) {
-        var user = users.selectOne(new LambdaQueryWrapper<UserEntity>().eq(UserEntity::getEmail, request.email())
-                .eq(UserEntity::getIsDeleted, false));
-        if (user == null || !passwords.matches(request.password(), user.getPassword())) {
+        String account = request.account().trim();
+        var query = new LambdaQueryWrapper<UserEntity>().eq(UserEntity::getIsDeleted, false);
+        if (account.contains("@")) { query.eq(UserEntity::getEmail, account); }
+        else {
+            if (!account.matches("^1[3-9]\\d{9}$")) { throw new BusinessException(401, "账号或密码错误"); }
+            query.eq(UserEntity::getPhone, account);
+        }
+        var matching = users.selectList(query);
+        // 历史数据允许大小写不同的邮箱并存，优先保留原来的精确匹配。
+        if (matching.isEmpty() && account.contains("@")) {
+            matching = users.selectList(new LambdaQueryWrapper<UserEntity>().eq(UserEntity::getIsDeleted, false)
+                    .apply("LOWER(email) = {0}", account.toLowerCase(Locale.ROOT)));
+        }
+        var user = matching.size() == 1 ? matching.getFirst() : null;
+        if (user == null || user.getPassword() == null || !passwords.matches(request.password(), user.getPassword())) {
             throw new BusinessException(401, "账号或密码错误");
         }
         var current = access.currentUser(user.getId());
@@ -44,9 +57,12 @@ public class AuthService {
     }
 
     public Map<String, Object> userInfo(LoginUser user) {
+        var account = users.selectById(user.id());
+        if (account == null || Boolean.TRUE.equals(account.getIsDeleted())) { throw new BusinessException(401, "用户不存在或已停用"); }
         var info = new java.util.LinkedHashMap<String, Object>();
         info.put("id", user.id()); info.put("username", user.username());
         info.put("avatar", user.avatar()); info.put("isSuperAdmin", user.isSuperAdmin());
+        info.put("email", account.getEmail()); info.put("phone", account.getPhone());
         return Map.of("userInfo", info, "permissions", user.permissions(), "menus", menus.userMenus(user));
     }
 }

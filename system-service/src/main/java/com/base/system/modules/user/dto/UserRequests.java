@@ -33,6 +33,9 @@ public final class UserRequests {
             @NotBlank @Size(min = 8, max = 72) String password,
             @Size(max = 1000) String avatar) {}
 
+    public record BindPhone(
+            @NotBlank @Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式错误") String phone) {}
+
     public record ListQuery(
             @Min(1) Integer pageNum,
             @Min(1) @Max(100) Integer pageSize,

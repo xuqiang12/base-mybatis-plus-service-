@@ -19,6 +19,7 @@ public class UserEntity {
     private String phone;
     @com.fasterxml.jackson.annotation.JsonIgnore
     private String password;
+    private Boolean emailVerified;
     private String avatar;
     private Boolean isSuperAdmin;
     private Boolean isDeleted;

@@ -87,6 +87,13 @@ class IdentityHttpTest {
     }
 
     @Test
+    void emailLoginFailsClearlyWhenPrivateMailConfigurationIsAbsent() {
+        var response = post("/auth/email/code", Map.of("email", "new@example.test"), null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().path("code").asInt()).isEqualTo(503);
+    }
+
+    @Test
     void userCrudUsesPaginationHashesPasswordsAndInvalidatesDeletedUserToken() {
         String admin = login("root@example.test", "test-admin-password");
         int userId = createUser(admin, "alice", "alice@example.test", "13800000001", List.of());
@@ -232,11 +239,13 @@ class IdentityHttpTest {
     }
 
     @Test
-    void publicRegistrationCannotAssignAdministratorOrRoles() {
+    void legacyRegistrationRequiresAdministratorAndCannotAssignRoles() {
         String admin = login("root@example.test", "test-admin-password");
         int role = createRole(admin, "management");
-        assertThat(post("/user/register", Map.of("username", "registered", "email", "registered@example.test",
-                "phone", "13800000009", "password", "test-user-password", "isSuperAdmin", true, "roleIds", List.of(role)), null).getStatusCode()).isEqualTo(HttpStatus.OK);
+        var request = Map.of("username", "registered", "email", "registered@example.test",
+                "phone", "13800000009", "password", "test-user-password", "isSuperAdmin", true, "roleIds", List.of(role));
+        assertThat(post("/user/register", request, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(post("/user/register", request, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         String token = login("registered@example.test", "test-user-password");
         var info = get("/auth/userInfo", token).getBody().path("data");
         assertThat(info.path("userInfo").path("isSuperAdmin").asBoolean()).isFalse();

@@ -10,6 +10,10 @@
     <artifactId>system-service</artifactId>
     <dependencies>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.base</groupId>
             <artifactId>base-security</artifactId>
             <version>${project.version}</version>
@@ -75,6 +79,8 @@
                     <include>1.0.0/V1_7__menu_role.sql</include>
                     <include>1.0.0/V1_8__menu_button.sql</include>
                     <include>1.0.0/V1_9__seed.sql</include>
+                    <include>1.0.1/V2_1__email_login.sql</include>
+                    <include>1.0.1/V2_2__email_registration.sql</include>
                 </includes>
             </resource>
         </resources>

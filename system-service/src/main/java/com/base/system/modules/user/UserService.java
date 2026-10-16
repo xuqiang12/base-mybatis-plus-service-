@@ -1,6 +1,7 @@
 package com.base.system.modules.user;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.base.common.exception.BusinessException;
 import com.base.common.result.PageResult;
@@ -64,7 +65,7 @@ public class UserService {
         replaceRoles(user.getId(), request.roleIds() == null ? List.of() : request.roleIds());
     }
 
-    // 公开注册只创建普通用户，角色与管理员标识不接受客户端指定。
+    // 管理员沿用的账号创建入口，角色与管理员标识不接受请求指定。
     @Transactional
     public String register(UserRequests.Register request) {
         insertUser(new UserRequests.Create(request.username(), request.email(), request.phone(), request.password(),
@@ -80,7 +81,10 @@ public class UserService {
         }
         if (Boolean.FALSE.equals(request.isSuperAdmin())) { protectLastAdmin(user); }
         if (request.username() != null) { user.setUsername(request.username()); }
-        if (request.email() != null) { user.setEmail(request.email()); }
+        if (request.email() != null) {
+            if (!request.email().equals(user.getEmail())) { user.setEmailVerified(false); }
+            user.setEmail(request.email());
+        }
         if (request.phone() != null) { user.setPhone(request.phone()); }
         if (request.password() != null) { user.setPassword(encodePassword(request.password())); }
         if (request.avatar() != null) { user.setAvatar(request.avatar()); }
@@ -102,6 +106,16 @@ public class UserService {
         users.updateById(user);
         access.clearUserRoles(id);
         return "用户删除成功";
+    }
+
+    // 只绑定当前登录用户，手机号格式由 DTO 校验，唯一性由数据库约束保证。
+    @Transactional
+    public String bindPhone(UserRequests.BindPhone request, LoginUser user) {
+        int updated = users.update(null, new LambdaUpdateWrapper<UserEntity>()
+                .eq(UserEntity::getId, user.id()).eq(UserEntity::getIsDeleted, false)
+                .set(UserEntity::getPhone, request.phone()).set(UserEntity::getUpdatedAt, Instant.now()));
+        if (updated == 0) { throw new BusinessException(401, "用户不存在或已停用"); }
+        return "手机号绑定成功";
     }
 
     // 仅在空用户库且显式给出初始化信息时建立首个管理员。

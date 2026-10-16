@@ -17,6 +17,7 @@
 - [礼账后端接口与数据库规划](docs/Java后端接口与数据库规划.md)：小程序业务、拟新增接口和表、开发顺序及待确认事项，尚未实施。
 - [技术和构建](#技术和构建)、[配置和启动](#配置和启动)：怎么构建、运行。
 - [登录与授权](#登录与授权)：单应用如何校验身份和权限。
+- [邮箱注册与密码登录](docs/Java学习/04_邮箱注册与密码登录.md)：SMTP 配置、验证码注册、邮箱/手机号密码登录及绑定流程。
 - [为什么比 Node 项目多一些文件](#为什么比-node-项目多一些文件)：对应关系和额外设计。
 - [先认识文件类型](#先认识文件类型)、[逐个文件的用途](#逐个文件的用途)：按模块查文件。
 - [沿一个请求读代码](#沿一个请求读代码)：建议的阅读顺序。
@@ -125,6 +126,8 @@ Invoke-RestMethod 'http://localhost:8080/health'
 每次从本地数据库查询最新授权，不缓存；撤权、删除用户对已有 Token 立即生效。公开业务接口通过 `security.public-endpoints.get/post` 显式配置。
 
 `/auth/login`、`/auth/userInfo` 和用户角色菜单权限路径保留，默认使用 8080 端口。多服务专用的 `GET /auth/access` 已移除。签名算法保留 RS256，本次合并不更换密钥或 issuer。
+
+邮箱注册使用 `POST /auth/email/code` 发码、`POST /auth/email/register` 提交邮箱/验证码/密码；注册成功后使用 `/auth/login` 以邮箱或手机号加密码登录。登录后可调用 `/user/bindPhone` 填写手机号绑定，暂不发短信。旧 `/user/register` 仅允许超级管理员调用；原验证码直接登录入口已移除。新增 V2.2 迁移保留 V2.1 历史，邮箱标记更正为 `email_verified`。配置及文件职责见 [邮箱注册与密码登录](docs/Java学习/04_邮箱注册与密码登录.md)。
 
 数据库表和 Flyway 历史使用 `relations` schema。首次初始化脚本集中在根目录 `sql/1.0.0/`，按 8 张表拆分，另有 1 个初始权限数据脚本；每张表和全部字段都有中文数据库注释。拆分前已只读确认本机配置指向的数据库尚未初始化，实际数据库未执行迁移。system 的打包配置将这 9 个脚本放到运行包的 `db/system/1.0.0/`，Flyway 从 `classpath:db/system` 递归加载，按 1.1 到 1.9 执行。已执行的迁移不修改，后续脚本按发布版本归档，并在所属服务的资源配置中登记；其他环境若已执行原单文件 V1，不能直接使用这组初始脚本替换历史，详见 [数据库脚本说明](sql/README.md)。
 
@@ -259,7 +262,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `modules/auth/AuthController.java` | 登录与当前用户、菜单、权限信息 |
 | `modules/auth/AuthService.java` | 查邮箱账户、校验密码、签发 Token，组装当前用户资料、菜单和权限 |
 | `modules/auth/AccessService.java` | 每次认证请求读取数据库中的最新用户、角色和权限；已删除用户的旧 Token 无法继续访问 |
-| `modules/auth/dto/LoginRequest.java` | 定义登录入参 email/password，并校验邮箱格式、非空和长度 |
+| `modules/auth/dto/LoginRequest.java` | 定义登录入参 account/password，账号可为邮箱或手机号；兼容原 email 字段，校验非空和长度 |
 | `modules/auth/mapper/AccessMapper.java` | 用注解 SQL 查询、维护用户角色、角色菜单、角色权限、按钮权限等关系，也提供管理员加锁查询 |
 
 ### 后续亲友业务

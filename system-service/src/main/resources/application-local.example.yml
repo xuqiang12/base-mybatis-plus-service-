@@ -6,11 +6,19 @@ spring:
     url: jdbc:postgresql://localhost:5432/relations
     username: relations
     password: ""
+  mail:
+    host: smtp.qq.com # 示例：按实际邮箱服务商填写
+    port: 465
+    username: "" # 发件邮箱完整地址
+    password: "" # 开启 SMTP 后取得的授权码，不是网页登录密码
 security:
   jwt:
     public-key: ${JWT_PUBLIC_KEY:file:./config/jwt-public.pem}
     private-key: ${JWT_PRIVATE_KEY:file:./config/jwt-private.pem}
 app:
+  email-code:
+    from: "" # 通常与 spring.mail.username 相同
+    code-secret: "" # 独立随机密钥，至少 32 字节；不可复用邮箱授权码
   bootstrap-admin:
     username: admin
     email: ""

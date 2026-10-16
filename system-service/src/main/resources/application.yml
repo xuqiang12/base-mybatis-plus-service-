@@ -11,8 +11,22 @@ spring:
     locations: classpath:db/system
   jackson:
     time-zone: Asia/Shanghai
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.ssl.enable: ${MAIL_SSL_ENABLED:true}
+      mail.smtp.starttls.enable: ${MAIL_STARTTLS_ENABLED:false}
+      mail.smtp.starttls.required: ${MAIL_STARTTLS_ENABLED:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 server:
   port: ${SERVER_PORT:8080}
+  forward-headers-strategy: none
 security:
   jwt:
     public-key: ${JWT_PUBLIC_KEY:file:./config/jwt-public.pem}
@@ -22,8 +36,12 @@ security:
   public-endpoints:
     post:
       - /auth/login
-      - /user/register
+      - /auth/email/code
+      - /auth/email/register
 app:
+  email-code:
+    from: ${MAIL_FROM:${MAIL_USERNAME:}}
+    code-secret: ${EMAIL_CODE_SECRET:}
   bootstrap-admin:
     username: ${BOOTSTRAP_ADMIN_USERNAME:}
     email: ${BOOTSTRAP_ADMIN_EMAIL:}
