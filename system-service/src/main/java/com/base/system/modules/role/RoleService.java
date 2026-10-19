@@ -23,10 +23,10 @@ public class RoleService {
     private final PermissionMapper permissions;
     private final AccessMapper access;
 
-    public List<RoleResponses.Summary> list() { return access.roleSummaries(); }
+    public List<RoleResponses.Summary> list() { return access.findRoleSummaries(); }
     public RoleResponses.Detail detail(int id) {
         var role = requiredRole(id);
-        return new RoleResponses.Detail(id, role.getName(), access.roleMenuIds(id), access.rolePermissionIds(id));
+        return new RoleResponses.Detail(id, role.getName(), access.findMenuIdsByRoleId(id), access.findPermissionIdsByRoleId(id));
     }
     public String create(RoleRequests.Create request) {
         var role = new RoleEntity(); role.setName(request.name()); roles.insert(role);
@@ -39,8 +39,8 @@ public class RoleService {
     @Transactional
     public String delete(int id) {
         requiredRole(id);
-        if (access.roleUserCount(id) > 0) { throw new BusinessException(400, "角色已被用户使用，不能删除"); }
-        access.clearRoleMenus(id); access.clearRolePermissions(id); access.clearRoleUsers(id); roles.deleteById(id);
+        if (access.getRoleUserCount(id) > 0) { throw new BusinessException(400, "角色已被用户使用，不能删除"); }
+        access.deleteRoleMenus(id); access.deleteRolePermissions(id); access.deleteRoleUsers(id); roles.deleteById(id);
         return "角色删除成功";
     }
     // 整体替换授权，任何校验或数据库失败都回滚。
@@ -55,9 +55,9 @@ public class RoleService {
                 || (!request.permissionIds().isEmpty() && permissions.selectByIds(request.permissionIds()).size() != request.permissionIds().size())) {
             throw new BusinessException(400, "权限不存在或重复");
         }
-        access.clearRoleMenus(request.id()); access.clearRolePermissions(request.id());
-        for (int id : request.menuIds()) { access.addRoleMenu(request.id(), id); }
-        for (int id : request.permissionIds()) { access.addRolePermission(request.id(), id); }
+        access.deleteRoleMenus(request.id()); access.deleteRolePermissions(request.id());
+        for (int id : request.menuIds()) { access.insertRoleMenu(request.id(), id); }
+        for (int id : request.permissionIds()) { access.insertRolePermission(request.id(), id); }
         return "角色授权保存成功";
     }
     private RoleEntity requiredRole(int id) {

@@ -31,17 +31,17 @@ public class MenuService {
     public List<MenuEntity> list() {
         return menus.selectList(new LambdaQueryWrapper<MenuEntity>().orderByAsc(MenuEntity::getSort).orderByAsc(MenuEntity::getId));
     }
-    public List<MenuNode> tree() { return buildTree(list(), access.buttons(), null); }
+    public List<MenuNode> tree() { return buildTree(list(), access.findButtons(), null); }
     public List<ButtonResponse> buttons(int menuId) {
         requiredMenu(menuId);
-        return access.buttons().stream().filter(button -> button.menuId().equals(menuId)).toList();
+        return access.findButtons().stream().filter(button -> button.menuId().equals(menuId)).toList();
     }
 
     // 用户只取得被角色授权的菜单，按钮只返回实际拥有的权限码。
     public List<MenuNode> userMenus(LoginUser user) {
-        var visible = new HashSet<>(access.visibleMenuIds(user.id()));
+        var visible = new HashSet<>(access.findVisibleMenuIds(user.id()));
         var selected = user.isSuperAdmin() ? list() : list().stream().filter(menu -> visible.contains(menu.getId())).toList();
-        return buildTree(selected, access.buttons(), new HashSet<>(user.permissions()));
+        return buildTree(selected, access.findButtons(), new HashSet<>(user.permissions()));
     }
 
     public String create(MenuRequests.Create request) {
@@ -87,7 +87,7 @@ public class MenuService {
         if (menus.selectCount(new LambdaQueryWrapper<MenuEntity>().eq(MenuEntity::getParentId, id)) > 0) {
             throw new BusinessException(400, "菜单下存在子菜单，不能删除");
         }
-        if (access.menuRoleCount(id) > 0 || buttons.selectCount(new LambdaQueryWrapper<MenuButtonEntity>().eq(MenuButtonEntity::getMenuId, id)) > 0) {
+        if (access.getMenuRoleCount(id) > 0 || buttons.selectCount(new LambdaQueryWrapper<MenuButtonEntity>().eq(MenuButtonEntity::getMenuId, id)) > 0) {
             throw new BusinessException(400, "菜单存在授权关系，不能删除");
         }
         menus.deleteById(id);

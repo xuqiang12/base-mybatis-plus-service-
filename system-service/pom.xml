@@ -81,6 +81,7 @@
                     <include>1.0.0/V1_9__seed.sql</include>
                     <include>1.0.1/V2_1__email_login.sql</include>
                     <include>1.0.1/V2_2__email_registration.sql</include>
+                    <include>1.0.1/V2_3__user_nickname.sql</include>
                 </includes>
             </resource>
         </resources>

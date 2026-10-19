@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.base.system.modules.auth.mapper.EmailCodeMapper">
+
+    <resultMap id="emailCodeResultMap" type="com.base.system.modules.auth.entity.EmailCodeEntity">
+        <id column="email" property="email"/>
+        <result column="code_hash" property="codeHash"/>
+        <result column="expires_at" property="expiresAt"/>
+        <result column="failed_attempts" property="failedAttempts"/>
+        <result column="used" property="used"/>
+    </resultMap>
+
+    <resultMap id="sendLimitResultMap" type="com.base.system.modules.auth.entity.EmailSendLimitEntity">
+        <id column="scope_key" property="scopeKey"/>
+        <result column="send_date" property="sendDate"/>
+        <result column="send_count" property="sendCount"/>
+        <result column="last_sent_at" property="lastSentAt"/>
+    </resultMap>
+
+    <insert id="insertSendLimitIfAbsent">
+        INSERT INTO relations.sys_email_send_limit (scope_key, send_date, send_count, last_sent_at)
+        VALUES (#{scopeKey}, #{sendDate}, 0, #{initialTime})
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <select id="getSendLimitForUpdate" resultMap="sendLimitResultMap">
+        SELECT scope_key, send_date, send_count, last_sent_at
+        FROM relations.sys_email_send_limit
+        WHERE scope_key = #{scopeKey}
+        FOR UPDATE
+    </select>
+
+    <update id="updateSendCount">
+        UPDATE relations.sys_email_send_limit
+        SET send_date = #{sendDate}, send_count = #{sendCount}, last_sent_at = #{lastSentAt}
+        WHERE scope_key = #{scopeKey}
+    </update>
+
+    <insert id="insertCodeIfAbsent">
+        INSERT INTO relations.sys_email_code (email)
+        VALUES (#{email})
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <select id="getCodeForUpdate" resultMap="emailCodeResultMap">
+        SELECT email, code_hash, expires_at, failed_attempts, used
+        FROM relations.sys_email_code
+        WHERE email = #{email}
+        FOR UPDATE
+    </select>
+
+    <update id="updateCode">
+        UPDATE relations.sys_email_code
+        SET code_hash = #{codeHash}, expires_at = #{expiresAt}, failed_attempts = 0, used = FALSE
+        WHERE email = #{email}
+    </update>
+
+    <update id="updateFailedAttempts">
+        UPDATE relations.sys_email_code
+        SET failed_attempts = failed_attempts + 1
+        WHERE email = #{email}
+    </update>
+
+    <update id="updateCodeUsed">
+        UPDATE relations.sys_email_code
+        SET used = TRUE
+        WHERE email = #{email}
+    </update>
+
+    <delete id="deleteExpiredCodes">
+        DELETE FROM relations.sys_email_code
+        WHERE expires_at &lt; #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredSendLimits">
+        DELETE FROM relations.sys_email_send_limit
+        WHERE last_sent_at &lt; #{cutoff}
+    </delete>
+</mapper>

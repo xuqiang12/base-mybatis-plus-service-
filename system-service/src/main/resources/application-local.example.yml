@@ -17,13 +17,14 @@ security:
     private-key: ${JWT_PRIVATE_KEY:file:./config/jwt-private.pem}
 app:
   email-code:
+    test-mode: false # 本机临时跳过发码、使用 123456 注册时改为 true
     from: "" # 通常与 spring.mail.username 相同
     code-secret: "" # 独立随机密钥，至少 32 字节；不可复用邮箱授权码
   bootstrap-admin:
     username: admin
     email: ""
     phone: ""
-    password: "" # 首次空库初始化；8 至 72 字符且 UTF-8 不超过 72 字节
+    password: "" # 首次空库初始化；8 至 72 个字符，仅支持英文字母、数字和英文半角符号，不能包含空格
 springdoc:
   api-docs:
     enabled: true

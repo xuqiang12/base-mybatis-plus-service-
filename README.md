@@ -127,7 +127,7 @@ Invoke-RestMethod 'http://localhost:8080/health'
 
 `/auth/login`、`/auth/userInfo` 和用户角色菜单权限路径保留，默认使用 8080 端口。多服务专用的 `GET /auth/access` 已移除。签名算法保留 RS256，本次合并不更换密钥或 issuer。
 
-邮箱注册使用 `POST /auth/email/code` 发码、`POST /auth/email/register` 提交邮箱/验证码/密码；注册成功后使用 `/auth/login` 以邮箱或手机号加密码登录。登录后可调用 `/user/bindPhone` 填写手机号绑定，暂不发短信。旧 `/user/register` 仅允许超级管理员调用；原验证码直接登录入口已移除。新增 V2.2 迁移保留 V2.1 历史，邮箱标记更正为 `email_verified`。配置及文件职责见 [邮箱注册与密码登录](docs/Java学习/04_邮箱注册与密码登录.md)。
+邮箱注册使用 `POST /auth/email/code` 发码、`POST /auth/email/register` 提交昵称/邮箱/验证码/密码；昵称 `nickname` 必填，去除首尾空白后最多 100 个字符，允许重复，通过 `/auth/userInfo` 返回。注册成功后使用 `/auth/login` 以邮箱或手机号加密码登录。登录后可调用 `/user/bindPhone` 填写手机号绑定，暂不发短信。旧 `/user/register` 仅允许超级管理员调用；原验证码直接登录入口已移除。V2.2 迁移保留 V2.1 历史，邮箱标记更正为 `email_verified`；V2.3 增加昵称字段，历史账号昵称允许为空。配置及文件职责见 [邮箱注册与密码登录](docs/Java学习/04_邮箱注册与密码登录.md)。
 
 数据库表和 Flyway 历史使用 `relations` schema。首次初始化脚本集中在根目录 `sql/1.0.0/`，按 8 张表拆分，另有 1 个初始权限数据脚本；每张表和全部字段都有中文数据库注释。拆分前已只读确认本机配置指向的数据库尚未初始化，实际数据库未执行迁移。system 的打包配置将这 9 个脚本放到运行包的 `db/system/1.0.0/`，Flyway 从 `classpath:db/system` 递归加载，按 1.1 到 1.9 执行。已执行的迁移不修改，后续脚本按发布版本归档，并在所属服务的资源配置中登记；其他环境若已执行原单文件 V1，不能直接使用这组初始脚本替换历史，详见 [数据库脚本说明](sql/README.md)。
 
@@ -193,7 +193,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | Config / Configuration | 注册和设置框架组件 | `SecurityConfig` |
 | Filter / Advice / Handler | 处理多个接口共用的日志、响应、错误 | `RequestLogFilter`、`ResponseAdvice` |
 
-当前基础 Mapper 继承 MyBatis-Plus 的 `BaseMapper`，因此可以直接使用 `selectById`、`insert` 等方法。关联 SQL 写在 `AccessMapper` 的注解里，目前没有自定义 Mapper XML 文件，也没有独立的 `ServiceImpl`。
+当前基础 Mapper 继承 MyBatis-Plus 的 `BaseMapper`，可直接使用 `selectById`、`insert` 等方法。auth 的自定义 SQL 放在 `resources/mapper/auth/` 下的 XML 中；业务接口保留在 auth 根包，具体实现统一放在 `auth/impl/`。
 
 ## 逐个文件的用途
 
@@ -259,11 +259,26 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `security/JwtSigningConfig.java` | 校验公私钥匹配、签发 RS256 Token、提供 BCrypt |
 | `security/BootstrapAdminProperties.java` | 读取首位管理员初始化所需的用户名、邮箱、手机和密码配置 |
 | `security/BootstrapAdminRunner.java` | 启动后按显式配置初始化管理员；未配置邮箱时跳过，用户表已有记录时不再新增 |
-| `modules/auth/AuthController.java` | 登录与当前用户、菜单、权限信息 |
-| `modules/auth/AuthService.java` | 查邮箱账户、校验密码、签发 Token，组装当前用户资料、菜单和权限 |
-| `modules/auth/AccessService.java` | 每次认证请求读取数据库中的最新用户、角色和权限；已删除用户的旧 Token 无法继续访问 |
-| `modules/auth/dto/LoginRequest.java` | 定义登录入参 account/password，账号可为邮箱或手机号；兼容原 email 字段，校验非空和长度 |
-| `modules/auth/mapper/AccessMapper.java` | 用注解 SQL 查询、维护用户角色、角色菜单、角色权限、按钮权限等关系，也提供管理员加锁查询 |
+| `modules/auth/AuthController.java` | 接收发码、注册、登录和当前用户信息请求，调用业务接口并包装响应 |
+| `modules/auth/AuthService.java` | 登录与当前用户信息业务接口 |
+| `modules/auth/AccessService.java` | 当前身份与授权业务接口，继承安全模块的 CurrentUserProvider |
+| `modules/auth/EmailCodeService.java` | 验证码发送与邮箱注册业务接口 |
+| `modules/auth/impl/AuthServiceImpl.java` | 校验密码、签发 Token，组装用户资料、权限和菜单 |
+| `modules/auth/impl/AccessServiceImpl.java` | 从本地数据库查询最新有效用户、角色和权限 |
+| `modules/auth/impl/EmailCodeServiceImpl.java` | 参数处理、发码限额、邮件发送、验证码校验、创建用户与定时清理 |
+| `modules/auth/dto/SendEmailCodeRequest.java` | 发送验证码请求，定义邮箱及其校验规则 |
+| `modules/auth/dto/EmailRegisterRequest.java` | 注册请求，定义昵称、邮箱、验证码、密码及其校验规则 |
+| `modules/auth/dto/LoginRequest.java` | 登录请求，定义 account/password，兼容原 email 字段 |
+| `modules/auth/dto/LoginResponse.java` | 登录返回的 Token |
+| `modules/auth/dto/UserInfoResponse.java` | 当前用户资料、权限和菜单的返回结构 |
+| `modules/auth/dto/UserProfileResponse.java` | 用户基本资料，不包含密码散列 |
+| `modules/auth/entity/EmailCodeEntity.java` | 验证码查询结果，含摘要、过期时间、错误次数和使用状态 |
+| `modules/auth/entity/EmailSendLimitEntity.java` | 邮箱或 IP 的发送限额查询结果 |
+| `modules/auth/mapper/AccessMapper.java` | 声明角色、菜单、操作权限关联的数据库访问方法 |
+| `modules/auth/mapper/EmailCodeMapper.java` | 声明验证码和发送限额的数据库访问方法 |
+| `system-service/src/main/resources/mapper/auth/AccessMapper.xml` | 角色、菜单、操作权限关联 SQL，以及有效超级管理员加锁查询 |
+| `system-service/src/main/resources/mapper/auth/EmailCodeMapper.xml` | 验证码与发送限额 SQL、结果映射、事务行锁 |
+| `modules/auth/EmailCodeProperties.java` | 绑定发件地址与验证码摘要密钥 |
 
 ### 后续亲友业务
 
@@ -343,6 +358,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `sql/1.0.0/V1_7__menu_role.sql` | 菜单与角色关联表、菜单索引及中文注释 |
 | `sql/1.0.0/V1_8__menu_button.sql` | 菜单按钮表、菜单索引及中文注释 |
 | `sql/1.0.0/V1_9__seed.sql` | 初始化 18 个操作权限；不插入默认账户或密码 |
+| `sql/1.0.1/V2_3__user_nickname.sql` | 增加用户昵称字段，允许重复，历史账号可为空 |
 | `system-service/src/test/java/com/base/system/FlywayMigrationTest.java` | 隔离数据库迁移测试：验证执行顺序、全部表和字段的注释、初始权限及重复执行 |
 | `base-common/src/test/java/com/base/foundation/FoundationHttpTest.java` | 4 项 HTTP 测试，检查统一返回、时间格式、字符串包装、参数校验、404/500 错误；测试中的 /probe 接口不会出现在正式服务 |
 | `system-service/src/test/java/com/base/system/IdentityHttpTest.java` | 18 项 HTTP 集成测试，覆盖登录、用户/角色/菜单/权限管理、授权变化、回滚、Token 失效、管理员初始化及并发保护 |

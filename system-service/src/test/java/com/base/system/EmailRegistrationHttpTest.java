@@ -1,6 +1,9 @@
 package com.base.system;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.base.common.exception.BusinessException;
+import com.base.system.modules.auth.EmailCodeService;
+import com.base.system.modules.auth.dto.EmailRegisterRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +23,7 @@ import java.util.concurrent.*;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -34,6 +38,7 @@ class EmailRegistrationHttpTest {
     @Autowired private TestRestTemplate http;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PasswordEncoder passwords;
+    @Autowired private EmailCodeService emailCodes;
     @MockitoBean private JavaMailSender mail;
     private final BlockingQueue<SimpleMailMessage> delivered = new LinkedBlockingQueue<>();
 
@@ -55,7 +60,7 @@ class EmailRegistrationHttpTest {
         String stored = jdbc.queryForObject("SELECT code_hash FROM relations.sys_email_code WHERE email=?", String.class, email);
         assertThat(stored).doesNotContain(code);
         var registered = post("/auth/email/register", Map.of("email", email, "code", code, "password", PASSWORD,
-                "isSuperAdmin", true, "roleIds", List.of(1), "phone", "13800000001"), null);
+                "nickname", "  小明  ", "isSuperAdmin", true, "roleIds", List.of(1), "phone", "13800000001"), null);
         assertThat(registered.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(registered.getBody().path("data").asText()).isEqualTo("注册成功");
         assertThat(registered.getBody().toString()).doesNotContain("token", PASSWORD);
@@ -68,9 +73,119 @@ class EmailRegistrationHttpTest {
         var info = get("/auth/userInfo", token(email)).getBody().path("data");
         assertThat(info.path("userInfo").path("id").asInt()).isEqualTo(row.get("id"));
         assertThat(info.path("userInfo").path("email").asText()).isEqualTo(email);
+        assertThat(info.path("userInfo").path("nickname").asText()).isEqualTo("小明");
+        assertThat(jdbc.queryForObject("SELECT nickname FROM relations.sys_user WHERE email=?", String.class, email)).isEqualTo("小明");
         assertThat(info.path("permissions")).isEmpty();
         assertThat(register(email, code).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(passwordLogin(email, "wrong-password").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void rejectsInvalidNicknamesWithoutConsumingCode() throws Exception {
+        String email = "invalid-nickname@example.test";
+        assertThat(send(email).getStatusCode()).isEqualTo(HttpStatus.OK);
+        String code = receivedCode(email);
+        var missing = post("/auth/email/register", Map.of("email", email, "code", code, "password", PASSWORD), null);
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missing.getBody().path("message").asText()).isEqualTo("昵称不能为空");
+        for (String nickname : List.of("", " \t\n　 ", "名".repeat(101))) {
+            var response = post("/auth/email/register", Map.of("email", email, "code", code,
+                    "password", PASSWORD, "nickname", nickname), null);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody().path("message").asText()).isEqualTo(
+                    nickname.length() > 100 ? "昵称不能超过100个字符" : "昵称不能为空");
+        }
+        assertThat(jdbc.queryForObject("SELECT used FROM relations.sys_email_code WHERE email=?", Boolean.class, email)).isFalse();
+        assertThat(register(email, code).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void allowsDuplicateNicknamesAtMaximumLength() throws Exception {
+        String nickname = "名".repeat(100);
+        for (String email : List.of("same-nickname-a@example.test", "same-nickname-b@example.test")) {
+            assertThat(send(email).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(post("/auth/email/register", Map.of("email", email, "code", receivedCode(email),
+                    "password", PASSWORD, "nickname", nickname), null).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(get("/auth/userInfo", token(email)).getBody().path("data").path("userInfo").path("nickname").asText())
+                    .isEqualTo(nickname);
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.sys_user WHERE nickname=?", Integer.class, nickname)).isEqualTo(2);
+    }
+
+    @Test
+    void returnsReadableRegistrationValidationMessages() {
+        var missingEmail = post("/auth/email/code", Map.of(), null);
+        assertThat(missingEmail.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missingEmail.getBody().path("message").asText()).isEqualTo("邮箱不能为空");
+
+        var invalidEmail = send("invalid");
+        assertThat(invalidEmail.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(invalidEmail.getBody().path("message").asText()).isEqualTo("邮箱格式不正确");
+
+        var shortPassword = post("/auth/email/register",
+                Map.of("email", "valid@example.test", "code", "012345", "password", "short", "nickname", "测试用户"), null);
+        assertThat(shortPassword.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(shortPassword.getBody().path("message").asText()).isEqualTo("密码长度必须为8～72个字符");
+    }
+
+    @Test
+    void rejectsUnsupportedPasswordsWithoutConsumingCode() throws Exception {
+        String email = "password-characters@example.test";
+        assertThat(send(email).getStatusCode()).isEqualTo(HttpStatus.OK);
+        String code = receivedCode(email);
+        for (String password : List.of("中文密码abc123", "abc123！@", "abc123😀", "abc defgh", "abc\tdefgh", "abc\ndefgh")) {
+            var response = post("/auth/email/register", Map.of("email", email, "code", code,
+                    "password", password, "nickname", "测试用户"), null);
+            assertThat(response.getStatusCode()).as(password).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody().path("message").asText())
+                    .isEqualTo("密码仅支持英文字母、数字和英文半角符号，不能包含空格");
+        }
+        for (String password : List.of("Ab1!xyz", "a".repeat(73))) {
+            var response = post("/auth/email/register", Map.of("email", email, "code", code,
+                    "password", password, "nickname", "测试用户"), null);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody().path("message").asText()).isEqualTo("密码长度必须为8～72个字符");
+        }
+        assertThat(jdbc.queryForObject("SELECT used FROM relations.sys_email_code WHERE email=?", Boolean.class, email)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.sys_user WHERE email=?", Integer.class, email)).isZero();
+        assertThat(register(email, code).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void registersAndLogsInWithPasswordsAtBothLengthBoundaries() throws Exception {
+        for (String password : List.of("Ab1!@#~?", "a".repeat(68) + "Z9!~")) {
+            String email = "password-boundary-" + password.length() + "@example.test";
+            assertThat(send(email).getStatusCode()).isEqualTo(HttpStatus.OK);
+            var response = post("/auth/email/register", Map.of("email", email, "code", receivedCode(email),
+                    "password", password, "nickname", "测试用户"), null);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(passwordLogin(email, password).getStatusCode()).isEqualTo(HttpStatus.OK);
+        }
+    }
+
+    @Test
+    void validatesRegistrationInServiceBeforeRunningBusinessLogic() {
+        var request = new EmailRegisterRequest();
+        request.setNickname("测试用户");
+        request.setEmail("invalid");
+        request.setCode("012345");
+        request.setPassword(PASSWORD);
+
+        assertThatThrownBy(() -> emailCodes.register(request))
+                .isInstanceOfSatisfying(BusinessException.class, error -> {
+                    assertThat(error.getStatus()).isEqualTo(400);
+                    assertThat(error.getMessage()).isEqualTo("邮箱格式不正确");
+                });
+    }
+
+    @Test
+    void logsInWithLegacyEmailField() throws Exception {
+        String email = "legacy-login-field@example.test";
+        createAccount(email);
+
+        var response = post("/auth/login", Map.of("email", email, "password", PASSWORD), null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().path("data").path("token").asText()).isNotBlank();
     }
 
     @Test
@@ -165,7 +280,7 @@ class EmailRegistrationHttpTest {
         String latest = receivedCode(email);
         assertThat(latest).isNotEqualTo(old);
         assertThat(register(email, old).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(register("NORMALIZE@EXAMPLE.TEST", latest).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(register("  NORMALIZE@EXAMPLE.TEST  ", latest).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(passwordLogin("NORMALIZE@EXAMPLE.TEST", PASSWORD).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
@@ -188,15 +303,15 @@ class EmailRegistrationHttpTest {
         assertThat(send("invalid").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(register("valid@example.test", "abc123").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(register("absent@example.test", "123456").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(post("/auth/email/register", Map.of("email", "valid@example.test", "code", "123456"), null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/auth/email/register", Map.of("email", "valid@example.test", "code", "123456", "password", "short"), null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/auth/email/register", Map.of("email", "valid@example.test", "code", "123456", "nickname", "测试用户"), null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/auth/email/register", Map.of("email", "valid@example.test", "code", "123456", "password", "short", "nickname", "测试用户"), null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(post("/auth/email/login", Map.of("email", "valid@example.test", "code", "123456"), null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(post("/user/register", Map.of("username", "unverified", "email", "unverified@example.test",
                 "phone", "13800000024", "password", PASSWORD), null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         String email = "unicode-password@example.test";
         assertThat(send(email).getStatusCode()).isEqualTo(HttpStatus.OK);
         String code = receivedCode(email);
-        assertThat(post("/auth/email/register", Map.of("email", email, "code", code, "password", "密".repeat(25)), null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/auth/email/register", Map.of("email", email, "code", code, "password", "密".repeat(25), "nickname", "测试用户"), null).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(register(email, code).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
@@ -300,7 +415,7 @@ class EmailRegistrationHttpTest {
         return response.getBody().path("data").path("token").asText();
     }
     private ResponseEntity<JsonNode> send(String email) { return post("/auth/email/code", Map.of("email", email), null); }
-    private ResponseEntity<JsonNode> register(String email, String code) { return post("/auth/email/register", Map.of("email", email, "code", code, "password", PASSWORD), null); }
+    private ResponseEntity<JsonNode> register(String email, String code) { return post("/auth/email/register", Map.of("email", email, "code", code, "password", PASSWORD, "nickname", "测试用户"), null); }
     private ResponseEntity<JsonNode> passwordLogin(String account, String password) { return post("/auth/login", Map.of("account", account, "password", password), null); }
     private ResponseEntity<JsonNode> post(String path, Object body, String token) { return http.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers(token)), JsonNode.class); }
     private ResponseEntity<JsonNode> get(String path, String token) { return http.exchange(path, HttpMethod.GET, new HttpEntity<>(headers(token)), JsonNode.class); }

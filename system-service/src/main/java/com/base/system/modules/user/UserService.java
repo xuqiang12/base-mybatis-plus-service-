@@ -16,7 +16,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -58,7 +57,7 @@ public class UserService {
     private void insertUser(UserRequests.Create request) {
         var user = new UserEntity();
         user.setUsername(request.username()); user.setEmail(request.email()); user.setPhone(request.phone());
-        user.setPassword(encodePassword(request.password())); user.setAvatar(request.avatar());
+        user.setPassword(passwords.encode(request.password())); user.setAvatar(request.avatar());
         user.setIsSuperAdmin(Boolean.TRUE.equals(request.isSuperAdmin())); user.setIsDeleted(false);
         user.setCreatedAt(Instant.now()); user.setUpdatedAt(user.getCreatedAt());
         users.insert(user);
@@ -86,7 +85,7 @@ public class UserService {
             user.setEmail(request.email());
         }
         if (request.phone() != null) { user.setPhone(request.phone()); }
-        if (request.password() != null) { user.setPassword(encodePassword(request.password())); }
+        if (request.password() != null) { user.setPassword(passwords.encode(request.password())); }
         if (request.avatar() != null) { user.setAvatar(request.avatar()); }
         if (request.isSuperAdmin() != null) { user.setIsSuperAdmin(request.isSuperAdmin()); }
         user.setUpdatedAt(Instant.now());
@@ -104,7 +103,7 @@ public class UserService {
         protectLastAdmin(user);
         user.setIsDeleted(true); user.setDeletedAt(Instant.now()); user.setUpdatedAt(user.getDeletedAt());
         users.updateById(user);
-        access.clearUserRoles(id);
+        access.deleteUserRoles(id);
         return "用户删除成功";
     }
 
@@ -132,10 +131,10 @@ public class UserService {
     }
 
     private UserResponse response(UserEntity user) {
-        var roleNames = access.roles(user.getId());
+        var roleNames = access.findRoleNames(user.getId());
         return new UserResponse(user.getId(), user.getUsername(), user.getEmail(), user.getPhone(), user.getAvatar(),
                 Boolean.TRUE.equals(user.getIsSuperAdmin()), Boolean.TRUE.equals(user.getIsDeleted()),
-                user.getDeletedAt(), user.getCreatedAt(), user.getUpdatedAt(), access.userRoleIds(user.getId()),
+                user.getDeletedAt(), user.getCreatedAt(), user.getUpdatedAt(), access.findRoleIdsByUserId(user.getId()),
                 roleNames, String.join("、", roleNames));
     }
 
@@ -143,19 +142,14 @@ public class UserService {
         if (new HashSet<>(ids).size() != ids.size() || (!ids.isEmpty() && roles.selectByIds(ids).size() != ids.size())) {
             throw new BusinessException(400, "角色不存在或重复");
         }
-        access.clearUserRoles(userId);
-        for (int id : ids) { access.addUserRole(userId, id); }
-    }
-
-    private String encodePassword(String value) {
-        if (value.getBytes(StandardCharsets.UTF_8).length > 72) { throw new BusinessException(400, "密码不能超过72字节"); }
-        return passwords.encode(value);
+        access.deleteUserRoles(userId);
+        for (int id : ids) { access.insertUserRole(userId, id); }
     }
 
     private void protectLastAdmin(UserEntity user) {
         if (!Boolean.TRUE.equals(user.getIsSuperAdmin())) { return; }
         // 先按固定顺序锁定管理员，再检查数量，防止两个事务同时删除最后两人。
-        access.lockActiveAdministrators();
+        access.findActiveAdministratorsForUpdate();
         if (users.selectCount(new LambdaQueryWrapper<UserEntity>()
                 .eq(UserEntity::getIsSuperAdmin, true).eq(UserEntity::getIsDeleted, false)) <= 1) {
             throw new BusinessException(400, "不能删除或停用最后一个超级管理员");

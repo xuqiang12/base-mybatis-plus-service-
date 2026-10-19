@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.base.system.modules.auth.mapper.AccessMapper">
+
+    <select id="findRoleNames" resultType="java.lang.String">
+        SELECT r.name
+        FROM relations.sys_role r
+        JOIN relations.sys_user_role ur ON r.id = ur.role_id
+        WHERE ur.user_id = #{userId}
+        ORDER BY r.id
+    </select>
+
+    <select id="findRoleIdsByUserId" resultType="java.lang.Integer">
+        SELECT role_id
+        FROM relations.sys_user_role
+        WHERE user_id = #{userId}
+        ORDER BY role_id
+    </select>
+
+    <select id="findPermissionCodes" resultType="java.lang.String">
+        SELECT DISTINCT p.code
+        FROM relations.sys_permission p
+        JOIN relations.sys_role_permission rp ON p.id = rp.permission_id
+        JOIN relations.sys_user_role ur ON rp.role_id = ur.role_id
+        WHERE ur.user_id = #{userId}
+        ORDER BY p.code
+    </select>
+
+    <select id="findVisibleMenuIds" resultType="java.lang.Integer">
+        SELECT DISTINCT mr.menu_id
+        FROM relations.sys_menu_role mr
+        JOIN relations.sys_user_role ur ON mr.role_id = ur.role_id
+        WHERE ur.user_id = #{userId}
+    </select>
+
+    <select id="findMenuIdsByRoleId" resultType="java.lang.Integer">
+        SELECT menu_id
+        FROM relations.sys_menu_role
+        WHERE role_id = #{roleId}
+        ORDER BY menu_id
+    </select>
+
+    <select id="findPermissionIdsByRoleId" resultType="java.lang.Integer">
+        SELECT permission_id
+        FROM relations.sys_role_permission
+        WHERE role_id = #{roleId}
+        ORDER BY permission_id
+    </select>
+
+    <select id="findRoleSummaries" resultType="com.base.system.modules.role.dto.RoleResponses$Summary">
+        SELECT r.id, r.name,
+               (SELECT COUNT(*)
+                FROM relations.sys_user_role ur
+                JOIN relations.sys_user u ON ur.user_id = u.id
+                WHERE ur.role_id = r.id AND u.is_deleted = FALSE) AS user_count
+        FROM relations.sys_role r
+        ORDER BY r.id
+    </select>
+
+    <select id="findButtons" resultType="com.base.system.modules.menu.dto.ButtonResponse">
+        SELECT b.id, b.menu_id, b.name, b.sort, b.permission_id, p.code AS permission_code
+        FROM relations.sys_menu_button b
+        JOIN relations.sys_permission p ON b.permission_id = p.id
+        ORDER BY b.sort, b.id
+    </select>
+
+    <delete id="deleteUserRoles">
+        DELETE FROM relations.sys_user_role
+        WHERE user_id = #{userId}
+    </delete>
+
+    <insert id="insertUserRole">
+        INSERT INTO relations.sys_user_role (user_id, role_id)
+        VALUES (#{userId}, #{roleId})
+    </insert>
+
+    <delete id="deleteRoleMenus">
+        DELETE FROM relations.sys_menu_role
+        WHERE role_id = #{roleId}
+    </delete>
+
+    <insert id="insertRoleMenu">
+        INSERT INTO relations.sys_menu_role (role_id, menu_id)
+        VALUES (#{roleId}, #{menuId})
+    </insert>
+
+    <delete id="deleteRolePermissions">
+        DELETE FROM relations.sys_role_permission
+        WHERE role_id = #{roleId}
+    </delete>
+
+    <insert id="insertRolePermission">
+        INSERT INTO relations.sys_role_permission (role_id, permission_id)
+        VALUES (#{roleId}, #{permissionId})
+    </insert>
+
+    <select id="getRoleUserCount" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM relations.sys_user_role ur
+        JOIN relations.sys_user u ON ur.user_id = u.id
+        WHERE ur.role_id = #{roleId} AND u.is_deleted = FALSE
+    </select>
+
+    <delete id="deleteRoleUsers">
+        DELETE FROM relations.sys_user_role
+        WHERE role_id = #{roleId}
+    </delete>
+
+    <select id="getMenuRoleCount" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM relations.sys_menu_role
+        WHERE menu_id = #{menuId}
+    </select>
+
+    <select id="getPermissionRoleCount" resultType="java.lang.Long">
+        SELECT COUNT(*)
+        FROM relations.sys_role_permission
+        WHERE permission_id = #{permissionId}
+    </select>
+
+    <select id="findActiveAdministratorsForUpdate" resultType="java.lang.Integer">
+        SELECT id
+        FROM relations.sys_user
+        WHERE is_super_admin = TRUE AND is_deleted = FALSE
+        ORDER BY id
+        FOR UPDATE
+    </select>
+</mapper>

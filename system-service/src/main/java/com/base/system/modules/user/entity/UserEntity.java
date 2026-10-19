@@ -15,6 +15,7 @@ public class UserEntity {
     @TableId(type = IdType.AUTO)
     private Integer id;
     private String username;
+    private String nickname;
     private String email;
     private String phone;
     @com.fasterxml.jackson.annotation.JsonIgnore

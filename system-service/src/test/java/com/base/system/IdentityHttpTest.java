@@ -87,6 +87,36 @@ class IdentityHttpTest {
     }
 
     @Test
+    void userPasswordChangesRejectUnsupportedCharactersAndInvalidLengths() {
+        String admin = login("root@example.test", "test-admin-password");
+        int userId = createUser(admin, "password-rules", "password-rules@example.test", "13800000012", List.of());
+        String originalHash = jdbc.queryForObject("SELECT password FROM relations.sys_user WHERE id=?", String.class, userId);
+        for (String password : List.of("中文密码abc123", "abc123！@", "abc123😀", "abc defgh", "Ab1!xyz", "a".repeat(73))) {
+            var body = Map.of("username", "invalid-password", "email", "invalid-password@example.test",
+                    "phone", "13800000013", "password", password);
+            for (String path : List.of("/user/create", "/user/register", "/user/update")) {
+                Object request = path.equals("/user/update") ? Map.of("id", userId, "password", password) : body;
+                var response = post(path, request, admin);
+                assertThat(response.getStatusCode()).as(path + ": " + password).isEqualTo(HttpStatus.BAD_REQUEST);
+                assertThat(response.getBody().path("message").asText()).isEqualTo(
+                        password.length() < 8 || password.length() > 72 ? "密码长度必须为8～72个字符"
+                                : "密码仅支持英文字母、数字和英文半角符号，不能包含空格");
+            }
+        }
+        assertThat(jdbc.queryForObject("SELECT password FROM relations.sys_user WHERE id=?", String.class, userId)).isEqualTo(originalHash);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.sys_user WHERE email='invalid-password@example.test'", Integer.class)).isZero();
+        assertThat(post("/user/update", Map.of("id", userId, "password", "Ab1!@#~?"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        login("password-rules@example.test", "Ab1!@#~?");
+    }
+
+    @Test
+    void existingUnicodePasswordsCanStillLogIn() {
+        jdbc.update("UPDATE relations.sys_user SET password=? WHERE username='root'",
+                new BCryptPasswordEncoder().encode("原有密码abc123"));
+        login("root@example.test", "原有密码abc123");
+    }
+
+    @Test
     void emailLoginFailsClearlyWhenPrivateMailConfigurationIsAbsent() {
         var response = post("/auth/email/code", Map.of("email", "new@example.test"), null);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);

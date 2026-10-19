@@ -37,7 +37,7 @@ public class PermissionService {
     public String delete(int id) {
         var value = required(id);
         if (value.getCode().startsWith("system:")) { throw new BusinessException(400, "基础权限不能删除"); }
-        if (access.permissionRoleCount(id) > 0 || buttons.selectCount(new LambdaQueryWrapper<MenuButtonEntity>()
+        if (access.getPermissionRoleCount(id) > 0 || buttons.selectCount(new LambdaQueryWrapper<MenuButtonEntity>()
                 .eq(MenuButtonEntity::getPermissionId, id)) > 0) { throw new BusinessException(400, "权限已被使用，不能删除"); }
         permissions.deleteById(id);
         return "权限删除成功";
