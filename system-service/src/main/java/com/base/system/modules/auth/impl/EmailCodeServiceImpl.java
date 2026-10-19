@@ -50,6 +50,9 @@ import java.util.UUID;
 @EnableConfigurationProperties(EmailCodeProperties.class)
 public class EmailCodeServiceImpl implements EmailCodeService {
 
+    @Autowired
+    private com.base.system.modules.family.FamilyService families;
+
     private static final int SUCCESS = 200;
     private static final int INVALID_CODE = 401;
     private static final int EMAIL_ALREADY_REGISTERED = 409;
@@ -213,6 +216,7 @@ public class EmailCodeServiceImpl implements EmailCodeService {
             user.setCreatedAt(Instant.now());
             user.setUpdatedAt(user.getCreatedAt());
             userMapper.insert(user);
+            families.initialize(user.getId());
             return SUCCESS;
         });
         if (Integer.valueOf(EMAIL_ALREADY_REGISTERED).equals(status)) {

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.base.system.modules.family.mapper.FamilyMapper">
+    <select id="family" resultType="com.base.system.modules.family.FamilyModels$Family">
+        SELECT * FROM relations.ledger_family WHERE id=#{id}
+    </select>
+    <select flushCache="true" id="lockFamily" resultType="com.base.system.modules.family.FamilyModels$Family">
+        SELECT * FROM relations.ledger_family WHERE id=#{id} FOR UPDATE
+    </select>
+    <select id="currentFamily" resultType="string">
+        SELECT family_id FROM relations.ledger_member WHERE user_id=#{userId}
+    </select>
+    <select flushCache="true" id="lockUser" resultType="int">
+        SELECT id FROM relations.sys_user WHERE id=#{userId} AND is_deleted=FALSE FOR UPDATE
+    </select>
+    <select id="userName" resultType="string">
+        SELECT COALESCE(NULLIF(TRIM(nickname),''),'家人') FROM relations.sys_user WHERE id=#{userId} AND is_deleted=FALSE
+    </select>
+    <select id="members" resultType="com.base.system.modules.family.FamilyModels$User">
+        SELECT CAST(u.id AS VARCHAR) AS id,COALESCE(NULLIF(TRIM(u.nickname),''),'家人') AS nickname FROM relations.ledger_member m JOIN relations.sys_user u ON u.id=m.user_id WHERE m.family_id=#{familyId} ORDER BY u.id
+    </select>
+    <insert id="insertFamily">
+        INSERT INTO relations.ledger_family(id,name,hidden_owner) VALUES(#{id},#{name},#{hiddenOwner})
+    </insert>
+    <insert id="insertMember">
+        INSERT INTO relations.ledger_member(user_id,family_id) VALUES(#{userId},#{familyId})
+    </insert>
+    <delete id="removeMember">
+        DELETE FROM relations.ledger_member WHERE user_id=#{userId}
+    </delete>
+</mapper>

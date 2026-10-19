@@ -2,7 +2,7 @@
 
 日期：2026-10-16。
 
-状态：礼账业务仍为方案草案，尚未新增家庭、记账等 Java 业务代码及迁移。当前已提供邮箱验证码注册、密码登录和手机号绑定后端，实际 SMTP、PostgreSQL 与小程序联调仍需配置后验证。
+状态：家庭成员管理已接入 Java，包括自动建立单人家庭、成员状态、微信分享卡片邀请、加入和退出。2026-10-19 用户要求从建表开始亲自学习，V3.2 清理迁移删除旧邀请及六张预建记账表，仅保留家庭、成员及账号权限表，已执行 V3.1 原文保留。账簿、亲友、人情、借贷、分类及收支的建表和接口均留给用户实现，小程序继续使用原有 mock。历史公开/隐藏/清空、账目合并及退出复制暂不接入。下文其他业务内容仍为方案草案，表名、字段及 ID 类型需逐表重新确认，不能将旧草案当成实际表结构；家庭当前范围见《家庭共享与历史保留实施计划》。
 
 前端：`F:\公司项目\gitee\business\giftLedger\gift-ledger`。
 
@@ -12,7 +12,7 @@
 
 阅读约定：前端现状与接入改造章节中的 `src/`、`mock/` 路径相对于上述前端工程；Java 模块及 `sql/` 路径相对于当前后端工程。微信登录、旧账导入及未结清亲友删除等未定事项仍为方案建议，迁移文档不代表批准实施。
 
-架构更新：用户已于 2026-10-16 确认改为单服务。本文同步服务落点；原有家庭、人情、借贷等业务规划仍未实施。
+架构更新：用户已于 2026-10-16 确认改为单服务。本文同步服务落点；家庭成员管理现已实现，其余记账业务仍为草案。
 
 认证更新：首版使用邮箱验证码注册并设置密码，邮箱或绑定手机号加密码登录；手机号登录后填写绑定，暂不短信验证。实现与接口以 [邮箱注册与密码登录](Java学习/04_邮箱注册与密码登录.md) 为准。本文后续微信身份表和微信登录部分保留为未来可选方案，不属于当前首版实现。
 
@@ -39,7 +39,7 @@
 | 借贷 | 借出、收款、借入、归还；按亲友累计待收/待还，还款校验 | src/components/loan-record-form/ |
 | 家庭收支 | 收入、支出、存款；新增、修改、删除；月/年汇总、分类占比与分类明细 | src/pages/loans/index.vue；src/pages-sub/household/；src/pages-sub/record/house-form.vue |
 | 收支分类 | 收入/支出分类新增、改名、图标、同方向上移、停用/启用、未使用分类删除 | src/components/household-category-editor/；src/pages-sub/household/categories.vue |
-| 家庭共享 | 创建家庭、邀请、预览、加入、带入/清除旧家庭数据、退出、清空历史 | src/pages-sub/family/index.vue |
+| 家庭共享 | 自动单人家庭、微信分享邀请、确认加入、退出；账目历史处理暂不接入 | src/pages-sub/family/index.vue |
 | 我的 | 家庭管理、账簿入口、亲友/账簿/记录数量、静态帮助和关于 | src/pages/mine/index.vue |
 
 当前调用链：
@@ -89,7 +89,7 @@ relations.sys_menu_button
 
 这些是已有账号权限表，本次不重复创建。`relations` 在这里是既有数据库 schema 名，不代表还存在独立的 relations-service。
 
-建议新增 10 张表：身份模块管理 1 张微信身份表；亲友业务模块管理 9 张家庭记账表，均由 system-service 执行读写与迁移。完整落地后为已有 8 张 + 新增 10 张，共 18 张业务/身份表，不计 Flyway 历史表。
+原始表设计现取消邀请表：身份模块规划 1 张微信身份表，家庭记账规划 8 张表。V3.2 后实际只保留 relations.ledger_family、relations.ledger_member 两张家庭业务表；其余记账表由用户逐表重新设计和创建，不照搬下文旧草案。
 
 ## 4. 模块和数据边界
 
@@ -116,7 +116,6 @@ flowchart LR
 | 1 | relations.sys_user_wechat | 身份模块 | 微信身份与统一用户的绑定 |
 | 2 | gift_ledger.family | 亲友业务模块 | 家庭 |
 | 3 | gift_ledger.family_member | 亲友业务模块 | 当前家庭成员关系 |
-| 4 | gift_ledger.family_invitation | 亲友业务模块 | 邀请码、有效期与使用状态 |
 | 5 | gift_ledger.friend | 亲友业务模块 | 家庭共享的亲友档案 |
 | 6 | gift_ledger.gift_book | 亲友业务模块 | 收礼账簿 |
 | 7 | gift_ledger.gift_record | 亲友业务模块 | 收礼/送礼流水 |
@@ -185,23 +184,9 @@ flowchart LR
 
 一家最多两人通过锁定家庭后检查人数实现，不能仅靠“先查人数再插入”。退出时删除当前成员关系，历史流水仍保留原作者。
 
-### 5.5 family_invitation：邀请码表
+### 5.5 分享邀请不建新表
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | BIGINT | 主键 |
-| family_id | BIGINT | 被邀请加入的家庭 |
-| code | VARCHAR(8) | 唯一的八位邀请码 |
-| inviter_id | INTEGER | 邀请人 |
-| status | VARCHAR(16) | pending / used / revoked |
-| expires_at | TIMESTAMPTZ | 24 小时有效期 |
-| used_by | INTEGER，可空 | 实际接受人 |
-| used_at | TIMESTAMPTZ，可空 | 实际使用时间 |
-| created_at / updated_at | TIMESTAMPTZ | 时间 |
-
-约束：code 唯一。过期直接按 expires_at 判断，不需要为此增加定时任务。可使用 PostgreSQL 部分唯一索引限制每个家庭最多一条 pending 记录；生成前先撤销旧 pending 记录，包括已过期但尚未改状态的记录。
-
-前端现有 expiresAt 是毫秒时间戳，响应 DTO 单独输出 epoch 毫秒，不能直接套全局 Instant 字符串格式。
+当前使用后端签名的分享参数，运行时不读写邀请记录。V3.1 中的 ledger_invitation 已通过新增 V3.2 迁移删除；已执行的旧 SQL 原文保留，不清空 Flyway 历史。
 
 ### 5.6 friend：亲友档案
 
@@ -318,7 +303,7 @@ flowchart LR
 ```text
 sys_user ── sys_user_wechat              system 内身份关联
 sys_user ── family_member               同一应用内关联，沿用 user_id 和家庭归属校验
-family   ── family_member / family_invitation
+family   ── family_member
 family   ── friend / gift_book / household_category
 family   ── gift_record / loan_record / household_record
 friend   ── gift_record / loan_record   档案删除只解除关联
@@ -331,7 +316,6 @@ household_category ── household_record  使用过的分类禁止删除
 | 表 | 索引 |
 | --- | --- |
 | family_member | UNIQUE(user_id)；INDEX(family_id) |
-| family_invitation | UNIQUE(code)；INDEX(family_id, status)；按需增加 pending 部分唯一索引 |
 | friend / gift_book | INDEX(family_id, id) |
 | gift_record | INDEX(family_id, biz_date, id)；INDEX(family_id, friend_id, biz_date)；INDEX(family_id, book_id) |
 | loan_record | INDEX(family_id, friend_id, direction)；INDEX(family_id, biz_date, id) |
@@ -363,23 +347,21 @@ household_category ── household_record  使用过的分类禁止删除
 
 本版沿用已有 JWT 会话机制；退出登录先清前端身份和记账缓存，不额外承诺已有 Token 会被全局注销。若需要主动失效所有会话，再单独设计。
 
-### 6.2 家庭：system 内亲友业务模块
+### 6.2 家庭：已实现
 
-| 方法 | 路径 | 用途 | 主要入参/结果 |
-| --- | --- | --- | --- |
-| GET | /family/state | 首版，当前用户与家庭快照 | currentUser、family、invitation；无体验账号列表 |
-| POST | /family/create | 首版，创建家庭 | name；返回家庭快照 |
-| POST | /family/invitation/create | 首版，生成或替换邀请 | historyChoice: keep / clear；返回 code、expiresAt |
-| GET | /family/invitation/preview | 首版，预览邀请 | code；仅返回家庭名、邀请人、记录数、到期时间 |
-| POST | /family/invitation/accept | 首版，接受邀请 | code、historyChoice；返回新家庭快照 |
-| POST | /family/leave | 首版，退出当前家庭 | 返回无家庭快照 |
-| POST | /family/history/clear | 首版，清空当前家庭历史 | 仅单人家庭允许；返回快照 |
+| 方法 | 路径 | 入参/结果 |
+| --- | --- | --- |
+| GET | /family/state | currentUser、family、空 localUsers；不返回邀请状态 |
+| POST | /family/invitation/share | 返回 {token}，自动放入微信卡片路径 |
+| GET | /family/invitation | query token；返回 familyName、inviterName |
+| POST | /family/invitation/accept | {token}；返回新的家庭快照 |
+| POST | /family/leave | 返回退出者的新单人家庭快照 |
 
-首次正式使用建议在登录后由前端显式调用 create，创建“我的家庭”；GET state 不创建数据。退出家庭后 state 返回 family:null，不能每次读取都自动建回家庭。
+注册时自动创建单人家庭；GET state 为无家庭的老用户补齐。最多两人，一个用户一个当前家庭；单人家庭不能退出。所有接口要求登录，写请求携带 X-Family-Id。
 
-预览邀请不会加入家庭，也不会提前清除旧数据。接受邀请必须再次检查有效期、状态、人数和来源家庭，不使用预览时的旧判断。
+分享邀请无定时过期、替换、撤销与状态记录。双方确认加入时迁入新家庭，原家庭成员改变后旧卡片失效。邀请凭证与登录凭证用途隔离。
 
-`createLocalUser` 和 `switchLocalUser` 只属于本机演示，不设计正式 HTTP 接口。
+家庭成员管理不处理账目历史。本机示例账号不提供正式 HTTP 接口。
 
 ### 6.3 亲友
 
@@ -550,25 +532,11 @@ HTTP 400/401/403/404/409/503 等配合现有异常结构使用；http 层需要�
 - 首页待收/待还要统计全部保留借贷流水，包含 friend_id 已置空的流水，不能只从现存亲友列表汇总。
 - 家庭记录总数只包括三类流水，不把账簿、亲友、分类数量加进去；hasData 还应考虑已有账簿与亲友，保持当前定义。
 
-### 8.2 家庭加入、退出与清空
+### 8.2 家庭加入与退出：当前行为
 
-接受邀请的同一事务包含：
+接受邀请在同一事务内验证签名、锁定双方原家庭，确认邀请者仍在卡片对应家庭、双方单人及接收方当前家庭未变化，再把双方迁入新的双人家庭。任一步失败整体回滚。
 
-1. 检查并锁定来源/目标家庭，重新核验成员关系、邀请码与人数。
-2. 来源是单人家庭且选择 keep：把账簿、亲友、三类流水、分类的 family_id 迁到目标家庭，保留原 ID、作者和关联，不按姓名合并。
-3. 选择 clear：仅删除来源家庭数据，目标家庭保留。
-4. 删除来源成员关系及已迁空/清空的来源家庭，加入目标家庭，标记邀请码使用并撤销相关旧邀请。
-5. 任一步失败则整体回滚。
-
-正式数据库分类使用全局唯一 ID，家庭合并不再有 mock 默认字符串主键碰撞的问题；但仍可能保留同名分类，处理规则保持不变。
-
-收入/支出分类迁入后按原顺序接在目标家庭同方向分类后面，重新安排 sort_no。内置 saving 分类建议复用目标家庭唯一的存款分类，将来源 saving 流水重映射后删除来源内置分类，避免表单出现两个不可维护的“存款”；这不按名称合并自定义收入/支出分类。
-
-退出时有另一成员：该成员保留全部家庭数据；退出者立即失去后续访问权。最后一人退出：清除家庭业务数据、成员及邀请，再删除家庭。
-
-清空历史仅单人成员可执行，范围包含账簿、亲友、三类流水、自定义分类；保留当前账号和家庭，并重新初始化默认分类。所有清空动作均不能留下部分删除结果。
-
-邀请前选择 clear 的行为是立即清空当前单人家庭，再生成邀请；它并不是等待别人接受时才清空，接口与页面确认必须一致。
+退出者建立新单人家庭，原家庭留给另一成员。原分享卡片不会因退出而恢复有效。暂不实现账目迁移、历史合并、隐藏、清空及退出复制。
 
 ### 8.3 数据库并发与事务
 
@@ -576,7 +544,7 @@ HTTP 400/401/403/404/409/503 等配合现有异常结构使用；http 层需要�
 
 - PostgreSQL 默认 READ COMMITTED 下，拿到家庭锁之后再计算借贷余额、分类占用和重复名称；不能在加锁之前读完余额后直接使用旧值。
 - 家庭迁入/退出同样使用这套锁。涉及两个家庭时按家庭 ID 固定顺序加锁，并在锁内重新校验状态。
-- 生成邀请与接受邀请共用家庭锁，确保邀请码一次使用、家庭人数上限及旧码失效。
+- 分享与接受邀请使用家庭锁；接受时重新校验成员，保证两人上限，旧卡片因成员变化失效。
 - 用户首次创建家庭还要通过成员 user_id 唯一约束兜底，并发创建不能产生两个有效家庭；失败事务整体回滚。
 - 创建新亲友与写人情/借贷流水同事务；删除档案与流水关联置空同事务。
 - 流水写入与分类停用/删除遵循相同锁顺序，避免校验后关联对象被另一请求删除。
@@ -593,7 +561,7 @@ base-mybatis-plus-service/
 │     ├─ auth/                      扩展微信登录，复用现有签发
 │     ├─ user/                      扩展昵称及微信身份实体/Mapper
 │     └─ relations/                 同一应用内的亲友业务目录
-│        ├─ family/                 家庭、成员、邀请、合并及清空
+│        ├─ family/                 家庭成员和微信分享邀请
 │        ├─ friend/                 亲友档案
 │        ├─ book/                   账簿
 │        ├─ gift/                   人情
@@ -605,7 +573,6 @@ base-mybatis-plus-service/
       ├─ V2_1__wechat_identity.sql   身份绑定及用户增量字段
       ├─ V2_2__family.sql            家庭；全部脚本均由 system 执行
       ├─ V2_3__family_member.sql
-      ├─ V2_4__family_invitation.sql
       ├─ V2_5__friend.sql
       ├─ V2_6__gift_book.sql
       ├─ V2_7__gift_record.sql
@@ -631,7 +598,7 @@ SQL 仍放后端根目录 sql，按表拆分，包含中文表与字段注释；
 | 3. 人情最小闭环 | 亲友、账簿、人情记录；首版 ledger/data 骨架 | 建亲友→建账簿→收礼→亲友/账簿汇总正确；删除档案只解除关联；保存失败无半条数据 |
 | 4. 借贷 | 四类流水与待收/待还校验 | 借出 100 元、收回 30 元后待收 70 元；再收 80 元失败；并发收款总额不能超过 70 元 |
 | 5. 家庭收支 | 分类、收入/支出/存款、编辑删除、完善全量读取 | 收入 5000、支出 2000、存款 1000，结余仍为 3000；编辑日期/删除后对应期间统计正确 |
-| 6. 两人共享 | 邀请预览/接受、带入/清除、退出、最后一人清理 | 两台设备读取同一家庭；邀请码一次使用；并发加入不超过两人；带入保留作者与关联；任何失败均不清掉来源数据 |
+| 6. 两人共享 | 已实现微信分享、确认加入及双人退出；账目共享待开发 | 两台设备读取同一家庭；签名邀请确认加入；并发不超过两人；旧卡片因成员变化失效；暂不处理账目历史 |
 | 7. 查询完善 | 分页、overview/recent、近六月趋势、分类统计及首页排行、我的统计、页面刷新 | 翻页不影响总额；趋势连续六个月且无记录补零；排行占比按全部支出计算；首页包含删除档案后的借贷；旧家庭请求不会写入新家庭；另一成员数据刷新可见 |
 
 每一阶段按“迁移 → Entity/Mapper → 请求/响应 DTO → Service/事务 → Controller → 数据库/HTTP 测试 → 前端接入”执行。

@@ -82,6 +82,8 @@
                     <include>1.0.1/V2_1__email_login.sql</include>
                     <include>1.0.1/V2_2__email_registration.sql</include>
                     <include>1.0.1/V2_3__user_nickname.sql</include>
+                    <include>1.0.2/V3_1__family_ledger.sql</include>
+                    <include>1.0.2/V3_2__remove_prebuilt_ledger_tables.sql</include>
                 </includes>
             </resource>
         </resources>

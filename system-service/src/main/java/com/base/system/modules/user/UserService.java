@@ -28,6 +28,7 @@ public class UserService {
     private final RoleMapper roles;
     private final AccessMapper access;
     private final PasswordEncoder passwords;
+    private final com.base.system.modules.family.FamilyService families;
 
     // 按筛选条件分页，只返回允许暴露的字段。
     public PageResult<UserResponse> list(UserRequests.ListQuery query) {
@@ -61,6 +62,7 @@ public class UserService {
         user.setIsSuperAdmin(Boolean.TRUE.equals(request.isSuperAdmin())); user.setIsDeleted(false);
         user.setCreatedAt(Instant.now()); user.setUpdatedAt(user.getCreatedAt());
         users.insert(user);
+        families.initialize(user.getId());
         replaceRoles(user.getId(), request.roleIds() == null ? List.of() : request.roleIds());
     }
 

@@ -49,7 +49,7 @@ class IdentityHttpTest {
 
     @BeforeEach
     void resetUsersAndGrants() {
-        for (String table : List.of("sys_user_role", "sys_menu_role", "sys_role_permission", "sys_menu_button", "sys_role", "sys_user")) {
+        for (String table : List.of("ledger_member", "ledger_family", "sys_user_role", "sys_menu_role", "sys_role_permission", "sys_menu_button", "sys_role", "sys_user")) {
             jdbc.update("DELETE FROM relations." + table);
         }
         jdbc.update("UPDATE relations.sys_menu SET parent_id = NULL");

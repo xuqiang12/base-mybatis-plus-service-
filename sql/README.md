@@ -49,6 +49,8 @@ sql/
 
 服务源码目录不再维护另一份 SQL。`target/` 和 JAR 中的 SQL 是自动生成的打包副本，请修改本目录中的原文件。
 
-后续亲友业务作为 system 内部模块开发，当前没有亲友业务表和迁移脚本。建表由 system 启动时自动执行，不需要手动逐个执行 SQL。`FlywayMigrationTest` 使用隔离 H2 数据库验证 12 个脚本的执行顺序、10 张表和 48 个字段的注释、18 个初始权限、从 1.9/2.1/2.2 升级及旧用途验证码作废、重复迁移不重新执行；身份和单服务 HTTP 测试继续验证业务行为。
+V3.1 是已执行的家庭及原账目建表历史，原文保持不可变。2026-10-19 按用户要求新增 [V3_2__remove_prebuilt_ledger_tables.sql](1.0.2/V3_2__remove_prebuilt_ledger_tables.sql)：仅删除 ledger_invitation、ledger_friend、ledger_book、ledger_gift、ledger_loan、ledger_category、ledger_household 七张表，保留 ledger_family、ledger_member 及账号权限表。删除按外键依赖顺序执行，不使用 CASCADE，不清空 Flyway 历史。
+
+后续记账业务由用户逐表设计、编写新迁移和 Java 代码；不重新执行或修改 V3.1。新迁移写好后需登记到 system-service/pom.xml，再启动服务执行并验证。`FlywayMigrationTest` 使用隔离 H2 数据库验证 14 个脚本、清理前后账号及家庭成员数据不变、重复迁移不重新执行；身份和家庭 HTTP 测试继续验证业务行为。
 
 [返回项目说明](../README.md)
