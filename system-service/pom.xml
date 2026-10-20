@@ -70,20 +70,22 @@
                 <targetPath>db/system</targetPath>
                 <filtering>false</filtering>
                 <includes>
-                    <include>1.0.0/V1_1__user.sql</include>
-                    <include>1.0.0/V1_2__role.sql</include>
-                    <include>1.0.0/V1_3__permission.sql</include>
-                    <include>1.0.0/V1_4__menu.sql</include>
-                    <include>1.0.0/V1_5__user_role.sql</include>
-                    <include>1.0.0/V1_6__role_permission.sql</include>
-                    <include>1.0.0/V1_7__menu_role.sql</include>
-                    <include>1.0.0/V1_8__menu_button.sql</include>
-                    <include>1.0.0/V1_9__seed.sql</include>
-                    <include>1.0.1/V2_1__email_login.sql</include>
-                    <include>1.0.1/V2_2__email_registration.sql</include>
-                    <include>1.0.1/V2_3__user_nickname.sql</include>
-                    <include>1.0.2/V3_1__family_ledger.sql</include>
-                    <include>1.0.2/V3_2__remove_prebuilt_ledger_tables.sql</include>
+                    <include>**/V*__*.sql</include>
+<!--                    <include>1.0.0/V1_1__user.sql</include>-->
+<!--                    <include>1.0.0/V1_2__role.sql</include>-->
+<!--                    <include>1.0.0/V1_3__permission.sql</include>-->
+<!--                    <include>1.0.0/V1_4__menu.sql</include>-->
+<!--                    <include>1.0.0/V1_5__user_role.sql</include>-->
+<!--                    <include>1.0.0/V1_6__role_permission.sql</include>-->
+<!--                    <include>1.0.0/V1_7__menu_role.sql</include>-->
+<!--                    <include>1.0.0/V1_8__menu_button.sql</include>-->
+<!--                    <include>1.0.0/V1_9__seed.sql</include>-->
+<!--                    <include>1.0.1/V2_1__email_login.sql</include>-->
+<!--                    <include>1.0.1/V2_2__email_registration.sql</include>-->
+<!--                    <include>1.0.1/V2_3__user_nickname.sql</include>-->
+<!--                    <include>1.0.2/V3_1__family_ledger.sql</include>-->
+<!--                    <include>1.0.2/V3_2__remove_prebuilt_ledger_tables.sql</include>-->
+<!--                    <include>1.0.2/V3_3__friend.sql</include>-->
                 </includes>
             </resource>
         </resources>

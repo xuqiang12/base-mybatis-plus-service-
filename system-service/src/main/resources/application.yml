@@ -25,7 +25,7 @@ spring:
       mail.smtp.timeout: 5000
       mail.smtp.writetimeout: 5000
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:8000}
   forward-headers-strategy: none
 security:
   jwt:
