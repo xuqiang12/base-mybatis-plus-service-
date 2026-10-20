@@ -30,7 +30,7 @@ class FamilyHttpTest {
     @Autowired JdbcTemplate jdbc;
 
     @Test
-    void registrationInitializesOnlyFamilyMembership() {
+    void registrationInitializesFamilyMembershipAndFriendTable() {
         String token = account();
         JsonNode state = state(token);
         assertThat(state.path("family").path("members").size()).isEqualTo(1);
@@ -38,7 +38,7 @@ class FamilyHttpTest {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='relations' "
                         + "AND table_name IN ('ledger_invitation','ledger_friend','ledger_book','ledger_gift',"
-                        + "'ledger_loan','ledger_category','ledger_household')", Integer.class)).isZero();
+                        + "'ledger_loan','ledger_category','ledger_household')", Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -128,7 +128,7 @@ class FamilyHttpTest {
     @Test
     void extraBusinessAndHistoryEndpointsAreNotExposed() {
         String token = account(), family = family(token);
-        for (String path : List.of("/friend/create", "/gift-book/create", "/gift-record/create",
+        for (String path : List.of("/gift-book/create", "/gift-record/create",
                 "/loan-record/create", "/household-category/create", "/household-record/create",
                 "/family/history/clear", "/family/history/publish", "/family/invitation/create")) {
             assertThat(post(path, Map.of("name", "测试", "date", "2026-10-19"), token, family)

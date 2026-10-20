@@ -43,14 +43,14 @@ sql/
 
 ## 如何执行
 
-每份 SQL 在所属服务的 `pom.xml` 中登记。system 的资源配置将当前 9 个初始脚本从这个目录原样复制到运行包的 `db/system/1.0.0/`，Flyway 按已有 `classpath:db/system` 配置递归发现并执行：先建基础表，再建关联表，最后初始化权限。Flyway 的 `relations.flyway_schema_history` 记录已执行版本，后续启动会校验并跳过它们。
+system-service 的 `pom.xml` 使用 `<include>**/V*__*.sql</include>` 自动包含本目录下符合命名规则的各版本脚本，原样复制到运行包的 `db/system/` 并保留版本子目录。Flyway 按已有 `classpath:db/system` 配置递归发现，并按文件版本执行：先建基础表，再建关联表，最后初始化权限。Flyway 的 `relations.flyway_schema_history` 记录已执行版本，后续启动会校验并跳过它们。
 
-以后新增 system 脚本时，在 `system-service/pom.xml` 的数据库资源 `includes` 中加入对应路径。当前只有一个运行服务，后续业务脚本统一由 system 登记和执行。
+以后新增 system 脚本时，使用未占用的 Flyway 版本并遵守 `V版本号__说明.sql` 命名即可，不必逐个修改 POM；重新构建复制资源，再启动服务执行迁移。当前只有一个运行服务，后续业务脚本统一由 system 打包和执行。完整练习见 [从表设计到接口开发：亲友实战模板](../从表设计到接口开发_亲友实战模板.md)。
 
 服务源码目录不再维护另一份 SQL。`target/` 和 JAR 中的 SQL 是自动生成的打包副本，请修改本目录中的原文件。
 
-V3.1 是已执行的家庭及原账目建表历史，原文保持不可变。2026-10-19 按用户要求新增 [V3_2__remove_prebuilt_ledger_tables.sql](1.0.2/V3_2__remove_prebuilt_ledger_tables.sql)：仅删除 ledger_invitation、ledger_friend、ledger_book、ledger_gift、ledger_loan、ledger_category、ledger_household 七张表，保留 ledger_family、ledger_member 及账号权限表。删除按外键依赖顺序执行，不使用 CASCADE，不清空 Flyway 历史。
+V3.1 是已执行的家庭及原账目建表历史，原文保持不可变。2026-10-19 按用户要求新增 [V3_2__remove_prebuilt_ledger_tables.sql](1.0.2/V3_2__remove_prebuilt_ledger_tables.sql)：仅删除 ledger_invitation、ledger_friend、ledger_book、ledger_gift、ledger_loan、ledger_category、ledger_household 七张表，保留 ledger_family、ledger_member 及账号权限表。删除按外键依赖顺序执行，不使用 CASCADE，不清空 Flyway 历史。随后 [V3_3__friend.sql](1.0.2/V3_3__friend.sql) 重新建立亲友档案表，供当前家庭范围的亲友 CRUD 使用。
 
-后续记账业务由用户逐表设计、编写新迁移和 Java 代码；不重新执行或修改 V3.1。新迁移写好后需登记到 system-service/pom.xml，再启动服务执行并验证。`FlywayMigrationTest` 使用隔离 H2 数据库验证 14 个脚本、清理前后账号及家庭成员数据不变、重复迁移不重新执行；身份和家庭 HTTP 测试继续验证业务行为。
+后续记账业务由用户逐表设计、编写新迁移和 Java 代码；不重新执行或修改 V3.1。新迁移写好后由现有通配符配置打包，再启动服务执行并验证。`FlywayMigrationTest` 使用隔离 H2 数据库验证 15 个脚本、清理前后账号及家庭成员数据不变、亲友表注释和重复迁移不重新执行；身份、家庭和亲友 HTTP 测试继续验证业务行为。
 
 [返回项目说明](../README.md)

@@ -34,8 +34,8 @@ public class FriendCreateRequest {
     /**
      * 性别：0 未填写，1 男，2 女；选填。
      */
-    @Min(value = 0, message = "性别只能填写0、1或2")
-    @Max(value = 2, message = "性别只能填写0、1或2")
+    @Min(value = 0, message = "性别选项无效，请重新选择")
+    @Max(value = 2, message = "性别选项无效，请重新选择")
     @JsonSetter(nulls = Nulls.SKIP)
     private Integer gender = 0;
 

@@ -67,7 +67,7 @@ base-mybatis-plus-service/
 │       │   │   ├── SystemApplication.java
 │       │   │   ├── config/           MyBatis 和数据库错误处理
 │       │   │   ├── security/         私钥签发、BCrypt、管理员初始化
-│       │   │   └── modules/          auth、user、role、menu、permission
+│       │   │   └── modules/          auth、user、role、menu、permission、friend
 │       │   └── resources/
 │       │       ├── application.yml
 │       │       └── application-local.example.yml
@@ -79,7 +79,7 @@ base-mybatis-plus-service/
 
 `base-common` 负责通用请求处理，不强制加载数据库或认证。`base-security` 通过 `CurrentUserProvider` 调用应用内的 `AccessService`，读取当前身份和权限，不再发起服务间 HTTP 查询。
 
-功能保持按业务组织，每组包含 Controller、Service、DTO、Entity 和 Mapper。亲友等业务后续放在 `com.base.system.modules.relations` 下，复用同一应用的数据库与认证配置；目前尚未创建业务代码。
+功能保持按业务组织，每组包含 Controller、Service、DTO、Entity 和 Mapper。亲友档案位于 `com.base.system.modules.friend`，复用同一应用的数据库与认证配置；借还款等其他业务仍按计划逐步开发。
 
 ## 技术和构建
 
@@ -133,7 +133,7 @@ Invoke-RestMethod 'http://localhost:8080/health'
 
 ## 当前范围
 
-当前采用单服务、内部按业务模块划分。亲友资料、借还款、微信登录、前端管理页面、菜单应用归属和更多业务权限留待实际业务开发。未引入网关、注册中心或缓存。
+当前采用单服务、内部按业务模块划分。亲友档案基础 CRUD 已实现；借还款、微信登录、前端管理页面、菜单应用归属和更多业务权限留待实际业务开发。未引入网关、注册中心或缓存。
 
 真实 PostgreSQL 实机运行尚未验证；测试成功不代表该数据库或生产部署已经启动成功。此工程不依赖公司的 PMS 或现有 Node 项目。
 
@@ -280,9 +280,9 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `system-service/src/main/resources/mapper/auth/EmailCodeMapper.xml` | 验证码与发送限额 SQL、结果映射、事务行锁 |
 | `modules/auth/EmailCodeProperties.java` | 绑定发件地址与验证码摘要密钥 |
 
-### 后续亲友业务
+### 亲友档案业务
 
-代码放在 `system-service/src/main/java/com/base/system/modules/relations/` 下，复用应用内认证、数据源和事务。目前尚未实现，不创建空目录或占位接口。
+代码位于 `system-service/src/main/java/com/base/system/modules/friend/`，提供当前家庭范围内的分页查询、详情、新增、修改和删除；复用应用内认证、数据源和事务。
 
 ### 用户管理
 
