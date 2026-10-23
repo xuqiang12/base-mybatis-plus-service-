@@ -20,6 +20,11 @@ public class FamilyController {
         return families.state(u.id());
     }
 
+    @GetMapping("/history/list")
+    public java.util.List<FamilyInfo> history(@AuthenticationPrincipal LoginUser u) {
+        return families.history(u.id());
+    }
+
     @PostMapping("/invitation/share")
     public Share share(
             @AuthenticationPrincipal LoginUser u,

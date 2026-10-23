@@ -11,6 +11,8 @@ spring:
     locations: classpath:db/system
   jackson:
     time-zone: Asia/Shanghai
+    deserialization:
+      accept-float-as-int: false
   mail:
     host: ${MAIL_HOST:}
     port: ${MAIL_PORT:465}

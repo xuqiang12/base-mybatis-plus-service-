@@ -51,6 +51,14 @@ system-service 的 `pom.xml` 使用 `<include>**/V*__*.sql</include>` 自动包�
 
 V3.1 是已执行的家庭及原账目建表历史，原文保持不可变。2026-10-19 按用户要求新增 [V3_2__remove_prebuilt_ledger_tables.sql](1.0.2/V3_2__remove_prebuilt_ledger_tables.sql)：仅删除 ledger_invitation、ledger_friend、ledger_book、ledger_gift、ledger_loan、ledger_category、ledger_household 七张表，保留 ledger_family、ledger_member 及账号权限表。删除按外键依赖顺序执行，不使用 CASCADE，不清空 Flyway 历史。随后 [V3_3__friend.sql](1.0.2/V3_3__friend.sql) 重新建立亲友档案表，供当前家庭范围的亲友 CRUD 使用。
 
-后续记账业务由用户逐表设计、编写新迁移和 Java 代码；不重新执行或修改 V3.1。新迁移写好后由现有通配符配置打包，再启动服务执行并验证。`FlywayMigrationTest` 使用隔离 H2 数据库验证 15 个脚本、清理前后账号及家庭成员数据不变、亲友表注释和重复迁移不重新执行；身份、家庭和亲友 HTTP 测试继续验证业务行为。
+2026-10-23 按完整开发授权新增：
+
+| 脚本 | 内容 |
+| --- | --- |
+| [V3_4__ledger_books_and_gifts.sql](1.0.2/V3_4__ledger_books_and_gifts.sql) | 家庭账簿、人情流水、亲友与姓名快照 |
+| [V3_5__ledger_loans.sql](1.0.2/V3_5__ledger_loans.sql) | 借出、收款、借入、归还流水 |
+| [V3_6__monthly_household_ledger.sql](1.0.2/V3_6__monthly_household_ledger.sql) | 分类、唯一家庭月份表、分类月合计 |
+
+原 V3.1～V3.3 内容未修改。本机配置对应的 PostgreSQL 已从 3.3 升级至 3.6，Flyway 校验 19 份迁移通过。迁移前备份保存在 `F:\公司项目\数据库备份\base-mybatis-plus-service\2026-10-23_162935_礼账迁移前`。加入前旧单人家庭复用 ledger_family.hidden_owner 作为本人只读归属，不需要改写迁移。分类默认项在家庭首次读取时初始化，不插入演示账目。完整验证见[交付报告](../docs/礼账开发交付与验收报告.md)。
 
 [返回项目说明](../README.md)

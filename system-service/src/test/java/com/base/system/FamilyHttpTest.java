@@ -37,8 +37,9 @@ class FamilyHttpTest {
         assertThat(state.path("localUsers").size()).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='relations' "
-                        + "AND table_name IN ('ledger_invitation','ledger_friend','ledger_book','ledger_gift',"
-                        + "'ledger_loan','ledger_category','ledger_household')", Integer.class)).isEqualTo(1);
+                + "AND table_name IN ('ledger_invitation','ledger_friend','ledger_book','ledger_gift',"
+                + "'ledger_loan','ledger_category','ledger_household','ledger_household_month',"
+                + "'ledger_household_item')", Integer.class)).isEqualTo(7);
     }
 
     @Test
@@ -51,8 +52,9 @@ class FamilyHttpTest {
                 .getStatusCode().value()).isEqualTo(400);
         ok(post("/family/invitation/accept", Map.of("token", invitation), b, originalB));
         String shared = family(a);
-        assertThat(shared).isNotIn(originalA, originalB);
+        assertThat(shared).isEqualTo(originalA);
         assertThat(family(b)).isEqualTo(shared);
+        assertThat(originalB).isNotEqualTo(shared);
         assertThat(state(a).path("family").path("members").size()).isEqualTo(2);
         assertThat(state(a).has("invitation")).isFalse();
         assertThat(get("/family/invitation?token=" + invitation, b).getStatusCode().value()).isEqualTo(400);
@@ -63,8 +65,30 @@ class FamilyHttpTest {
         assertThat(state(a).path("family").path("members").size()).isEqualTo(1);
         assertThat(state(b).path("family").path("members").size()).isEqualTo(1);
         assertThat(post("/family/leave", Map.of(), b, family(b)).getStatusCode().value()).isEqualTo(400);
-        // Leaving never makes the original shared card valid again.
-        assertThat(get("/family/invitation?token=" + invitation, b).getStatusCode().value()).isEqualTo(400);
+        // The inviter remains in the original family, so the signed invitation is still valid.
+        assertThat(get("/family/invitation?token=" + invitation, b).getStatusCode().value()).isEqualTo(200);
+    }
+
+    @Test
+    void joiningRetainsOriginalDataAsOwnerOnlyReadOnlyHistory() {
+        String a = account(), b = account(), c = account();
+        String original = family(b);
+        long book = ok(post("/ledger/book/create", Map.of("name", "加入前的账簿"), b, original)).path("id").asLong();
+        ok(post("/family/invitation/accept", Map.of("token", share(a)), b, original));
+        JsonNode histories = ok(get("/family/history/list", b));
+        assertThat(histories).hasSize(1);
+        assertThat(histories.get(0).path("id").asText()).isEqualTo(original);
+        JsonNode old = ok(get("/ledger/history/data?familyId=" + original, b));
+        assertThat(old.path("books").get(0).path("name").asText()).isEqualTo("加入前的账簿");
+        assertThat(ok(get("/ledger/data", b)).path("books")).isEmpty();
+        for (String other : List.of(a, c)) {
+            assertThat(get("/ledger/history/data?familyId=" + original, other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+            assertThat(ok(get("/family/history/list", other))).isEmpty();
+        }
+        assertThat(post("/ledger/book/update", Map.of("id", book, "name", "篡改"), b, family(b)).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        ok(post("/family/leave", Map.of(), b, family(b)));
+        assertThat(ok(get("/ledger/data", b)).path("books")).isEmpty();
+        assertThat(ok(get("/ledger/history/data?familyId=" + original, b)).path("books")).hasSize(1);
     }
 
     @Test
@@ -126,7 +150,7 @@ class FamilyHttpTest {
     }
 
     @Test
-    void extraBusinessAndHistoryEndpointsAreNotExposed() {
+    void unsupportedHistoryEndpointsAreNotExposed() {
         String token = account(), family = family(token);
         for (String path : List.of("/gift-book/create", "/gift-record/create",
                 "/loan-record/create", "/household-category/create", "/household-record/create",
@@ -134,9 +158,10 @@ class FamilyHttpTest {
             assertThat(post(path, Map.of("name", "测试", "date", "2026-10-19"), token, family)
                     .getStatusCode().value()).as(path).isEqualTo(404);
         }
-        for (String path : List.of("/ledger/data", "/family/history/list", "/family/history/data?id=test")) {
+        for (String path : List.of("/family/history/data?id=test")) {
             assertThat(get(path, token).getStatusCode().value()).as(path).isEqualTo(404);
         }
+        assertThat(get("/ledger/data", token).getStatusCode().value()).isEqualTo(200);
     }
 
     String account() {

@@ -53,6 +53,18 @@ public class FamilyService {
         return snapshot(userId, current(userId, null, false));
     }
 
+    public List<FamilyInfo> history(int userId) {
+        return mapper.history(userId).stream().map(family -> {
+            FamilyInfo info = new FamilyInfo();
+            info.setId(family.getId());
+            info.setName(family.getName());
+            info.setMembers(List.of());
+            info.setRecordCount(mapper.recordCount(family.getId()));
+            info.setHasData(info.getRecordCount() > 0);
+            return info;
+        }).toList();
+    }
+
     public Share share(int userId, String expected) {
         Family family = current(userId, expected, true);
         single(family.getId());
@@ -105,12 +117,10 @@ public class FamilyService {
         if (!mine.equals(mapper.currentFamily(userId)) || expected == null || !expected.equals(mine))
             throw new BusinessException(409, "家庭已变化，请刷新后重试");
         single(mine);
-        Family shared = newFamily();
+        mapper.archive(mine, userId);
         mapper.removeMember(userId);
-        mapper.removeMember(inviter);
-        mapper.insertMember(shared.getId(), userId);
-        mapper.insertMember(shared.getId(), inviter);
-        return snapshot(userId, shared);
+        mapper.insertMember(theirs, userId);
+        return snapshot(userId, mapper.family(theirs));
     }
 
     public Snapshot leave(int userId, String expected) {
@@ -152,6 +162,8 @@ public class FamilyService {
         info.setId(family.getId());
         info.setName(family.getName());
         info.setMembers(mapper.members(family.getId()));
+        info.setRecordCount(mapper.recordCount(family.getId()));
+        info.setHasData(info.getRecordCount() > 0);
         state.setFamily(info);
         return state;
     }

@@ -19,6 +19,12 @@ public interface FamilyMapper {
 
     String userName(@Param("userId") int userId);
 
+    int recordCount(@Param("familyId") String familyId);
+
+    List<Family> history(@Param("userId") int userId);
+
+    void archive(@Param("id") String id, @Param("userId") int userId);
+
     void insertFamily(Family family);
 
     void insertMember(@Param("familyId") String familyId, @Param("userId") int userId);

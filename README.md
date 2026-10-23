@@ -1,12 +1,12 @@
 # base-mybatis-plus-service：按业务模块组织的单服务基础工程
 
-当前有三个 Maven 模块，其中两个是公共类库、一个是独立运行的 Spring Boot 服务。只需启动 `SystemApplication`，默认端口 8080。
+当前有三个 Maven 模块，其中两个是公共类库、一个是独立运行的 Spring Boot 服务。只需启动 `SystemApplication`，默认端口 8000。
 
 | 模块 | 独立启动 | 职责 |
 | --- | --- | --- |
 | [base-common](base-common/README.md) | 否 | 统一返回、分页结构、校验、异常、时间和请求日志 |
 | [base-security](base-security/README.md) | 否 | 公钥校验 Token、当前身份、接口权限检查、统一安全错误 |
-| [system-service](system-service/README.md) | 是，默认 8080 | 登录、用户、角色、菜单、权限及后续亲友业务 |
+| [system-service](system-service/README.md) | 是，默认 8000 | 登录、用户、角色、菜单、权限及后续亲友业务 |
 
 职责速记：**common 管通用请求处理，security 管身份与权限检查，system 管账号和权限数据。** 三个模块各自目录里的 README 都有简短说明，可以随时查阅。
 
@@ -14,7 +14,7 @@
 
 - [目录与依赖](#目录与依赖)：哪些是类库，哪些是运行服务。
 - [数据库脚本](sql/README.md)：按发布版本集中查阅建表和改表 SQL。
-- [礼账后端接口与数据库规划](docs/Java后端接口与数据库规划.md)：小程序业务、拟新增接口和表、开发顺序及待确认事项，尚未实施。
+- [礼账后端接口与数据库规划](docs/Java后端接口与数据库规划.md)：早期接口规划；当前实现与验收以[礼账开发交付与验收报告](docs/礼账开发交付与验收报告.md)为准。
 - [技术和构建](#技术和构建)、[配置和启动](#配置和启动)：怎么构建、运行。
 - [登录与授权](#登录与授权)：单应用如何校验身份和权限。
 - [邮箱注册与密码登录](docs/Java学习/04_邮箱注册与密码登录.md)：SMTP 配置、验证码注册、邮箱/手机号密码登录及绑定流程。
@@ -114,7 +114,7 @@ mvn.cmd -s .mvn/settings.xml clean verify
 健康检查：
 
 ```powershell
-Invoke-RestMethod 'http://localhost:8080/health'
+Invoke-RestMethod 'http://localhost:8000/health'
 ```
 
 返回 `code: 0`、`status: "UP"` 和 `service: "system-service"`。健康接口仅确认 HTTP 响应，数据库迁移和登录需结合日志与实际接口检查。
@@ -125,17 +125,17 @@ Invoke-RestMethod 'http://localhost:8080/health'
 
 每次从本地数据库查询最新授权，不缓存；撤权、删除用户对已有 Token 立即生效。公开业务接口通过 `security.public-endpoints.get/post` 显式配置。
 
-`/auth/login`、`/auth/userInfo` 和用户角色菜单权限路径保留，默认使用 8080 端口。多服务专用的 `GET /auth/access` 已移除。签名算法保留 RS256，本次合并不更换密钥或 issuer。
+`/auth/login`、`/auth/userInfo` 和用户角色菜单权限路径保留，默认使用 8000 端口。多服务专用的 `GET /auth/access` 已移除。签名算法保留 RS256，本次合并不更换密钥或 issuer。
 
 邮箱注册使用 `POST /auth/email/code` 发码、`POST /auth/email/register` 提交昵称/邮箱/验证码/密码；昵称 `nickname` 必填，去除首尾空白后最多 100 个字符，允许重复，通过 `/auth/userInfo` 返回。注册成功后使用 `/auth/login` 以邮箱或手机号加密码登录。登录后可调用 `/user/bindPhone` 填写手机号绑定，暂不发短信。旧 `/user/register` 仅允许超级管理员调用；原验证码直接登录入口已移除。V2.2 迁移保留 V2.1 历史，邮箱标记更正为 `email_verified`；V2.3 增加昵称字段，历史账号昵称允许为空。配置及文件职责见 [邮箱注册与密码登录](docs/Java学习/04_邮箱注册与密码登录.md)。
 
-数据库表和 Flyway 历史使用 `relations` schema。首次初始化脚本集中在根目录 `sql/1.0.0/`，按 8 张表拆分，另有 1 个初始权限数据脚本；每张表和全部字段都有中文数据库注释。拆分前已只读确认本机配置指向的数据库尚未初始化，实际数据库未执行迁移。system 的打包配置将这 9 个脚本放到运行包的 `db/system/1.0.0/`，Flyway 从 `classpath:db/system` 递归加载，按 1.1 到 1.9 执行。已执行的迁移不修改，后续脚本按发布版本归档，并在所属服务的资源配置中登记；其他环境若已执行原单文件 V1，不能直接使用这组初始脚本替换历史，详见 [数据库脚本说明](sql/README.md)。
+数据库表和 Flyway 历史使用 `relations` schema。首次初始化脚本集中在根目录 `sql/1.0.0/`，按 8 张表拆分，另有 1 个初始权限数据脚本；每张表和全部字段都有中文数据库注释。拆分前已只读确认本机配置指向的数据库尚未初始化，此为初始拆分时的核对结果；当前真实数据库已迁移至 v3.6。system 的打包配置将这 9 个脚本放到运行包的 `db/system/1.0.0/`，Flyway 从 `classpath:db/system` 递归加载，按 1.1 到 1.9 执行。已执行的迁移不修改，后续脚本按发布版本归档，并在所属服务的资源配置中登记；其他环境若已执行原单文件 V1，不能直接使用这组初始脚本替换历史，详见 [数据库脚本说明](sql/README.md)。
 
 ## 当前范围
 
-当前采用单服务、内部按业务模块划分。亲友档案基础 CRUD 已实现；借还款、微信登录、前端管理页面、菜单应用归属和更多业务权限留待实际业务开发。未引入网关、注册中心或缓存。
+当前采用单服务、内部按业务模块划分。礼账亲友、账簿、人情、借还款、月度家庭收支和家庭共享已接通；历史家庭仅原账号只读访问。微信登录、菜单应用归属和更多管理权限不属于本轮范围。未引入网关、注册中心或缓存。
 
-真实 PostgreSQL 实机运行尚未验证；测试成功不代表该数据库或生产部署已经启动成功。此工程不依赖公司的 PMS 或现有 Node 项目。
+2026-10-23 已备份真实 PostgreSQL，执行增量至 v3.6，并通过独立测试账号完成 HTTP 联调。H5与微信构建、类型检查通过；前端232项测试231通过、0失败、1项可选外部CMS登记检查跳过。真实邮件、微信真机、物理双设备和域名链路尚未验收，详见[交付报告](docs/礼账开发交付与验收报告.md)。此工程不依赖公司的 PMS 或现有 Node 项目。
 
 ## 为什么比 Node 项目多一些文件
 
@@ -210,7 +210,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `.mvn/settings.xml` | 项目专用 Maven 仓库设置；使用默认公共仓库，避免沿用其他项目的私服设置；使用时须在 IDEA 或命令中明确指定 |
 | `.gitignore` | 告诉 Git 忽略编译产物、IDE 文件、日志和本机私有配置 |
 | `system-service/src/main/java/com/base/system/SystemApplication.java` | 统一管理服务启动入口，扫描自身管理代码并导入安全模块 |
-| `system-service/src/main/resources/application.yml` | 8080、数据库、Flyway、公私钥、管理员、文档与 MyBatis 配置 |
+| `system-service/src/main/resources/application.yml` | 8000、数据库、Flyway、公私钥、管理员、文档与 MyBatis 配置 |
 | `system-service/src/main/resources/application-local.example.yml` | 管理服务本机模板：数据库、密钥、管理员配置 |
 | `system-service/src/test/resources/application-test.yml` | H2 内存数据库和测试 RSA 密钥路径，不是生产配置 |
 
@@ -400,7 +400,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | --- | --- |
 | `README.md` | 项目入口：模块、启动、逐文件用途、Node 对照和阅读顺序 |
 | `docs/统一账号多服务设计.md` | 历史多服务设计，已由单服务合并方案替代 |
-| `docs/Java后端接口与数据库规划.md` | 礼账小程序的前后端现状、接口与表设计、业务规则、分阶段验收和待确认事项；由前端迁入，尚未实施 |
+| `docs/Java后端接口与数据库规划.md` | 由前端迁入的历史规划；当前实施与验收以《礼账完整开发计划》和《礼账开发交付与验收报告》为准 |
 | `docs/多服务拆分实施计划.md` | 历史四模块拆分记录 |
 | `docs/单服务合并实施计划.md` | 当前三个模块、唯一入口和本地鉴权的合并设计、步骤及验收 |
 | `docs/第一阶段实施计划.md` | 早期只搭建骨架和健康检查的计划及当时验证记录 |

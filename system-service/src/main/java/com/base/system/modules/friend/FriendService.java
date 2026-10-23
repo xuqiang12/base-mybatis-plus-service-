@@ -1,6 +1,7 @@
 package com.base.system.modules.friend;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.base.common.exception.BusinessException;
 import com.base.common.result.PageResult;
@@ -12,6 +13,10 @@ import com.base.system.modules.friend.dto.FriendResponse;
 import com.base.system.modules.friend.dto.FriendUpdateRequest;
 import com.base.system.modules.friend.entity.FriendEntity;
 import com.base.system.modules.friend.mapper.FriendMapper;
+import com.base.system.modules.ledger.entity.GiftEntity;
+import com.base.system.modules.ledger.entity.LoanEntity;
+import com.base.system.modules.ledger.mapper.GiftMapper;
+import com.base.system.modules.ledger.mapper.LoanMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -28,6 +33,8 @@ import java.time.Instant;
 public class FriendService {
     private final FriendMapper friendMapper;
     private final FamilyMapper familyMapper;
+    private final GiftMapper giftMapper;
+    private final LoanMapper loanMapper;
 
     /**
      * 新增亲友；事务保证本次数据库写入整体提交或回滚。
@@ -109,6 +116,25 @@ public class FriendService {
     @Transactional
     public String delete(int userId, long id) {
         FriendEntity friend = ownedFriend(userId, id);
+        var loans = loanMapper.selectList(new LambdaQueryWrapper<LoanEntity>()
+                .eq(LoanEntity::getFamilyId, friend.getFamilyId())
+                .eq(LoanEntity::getFriendId, friend.getId()));
+        long receivable = loans.stream().mapToLong(item -> "lend".equals(item.getDirection())
+                ? item.getAmountCents() : "receive".equals(item.getDirection()) ? -item.getAmountCents() : 0).sum();
+        long payable = loans.stream().mapToLong(item -> "borrow".equals(item.getDirection())
+                ? item.getAmountCents() : "pay".equals(item.getDirection()) ? -item.getAmountCents() : 0).sum();
+        if (receivable > 0 || payable > 0)
+            throw new BusinessException(409, "该亲友有未结清借贷，请先结清");
+        giftMapper.update(null, new LambdaUpdateWrapper<GiftEntity>()
+                .eq(GiftEntity::getFamilyId, friend.getFamilyId())
+                .eq(GiftEntity::getFriendId, friend.getId())
+                .set(GiftEntity::getFriendId, null)
+                .set(GiftEntity::getUpdatedAt, Instant.now()));
+        loanMapper.update(null, new LambdaUpdateWrapper<LoanEntity>()
+                .eq(LoanEntity::getFamilyId, friend.getFamilyId())
+                .eq(LoanEntity::getFriendId, friend.getId())
+                .set(LoanEntity::getFriendId, null)
+                .set(LoanEntity::getUpdatedAt, Instant.now()));
         friendMapper.deleteById(friend.getId());
         return "亲友删除成功";
     }

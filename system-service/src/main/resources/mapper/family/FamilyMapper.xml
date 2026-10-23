@@ -16,9 +16,22 @@
     <select id="userName" resultType="string">
         SELECT COALESCE(NULLIF(TRIM(nickname),''),'家人') FROM relations.sys_user WHERE id=#{userId} AND is_deleted=FALSE
     </select>
+    <select id="recordCount" resultType="int">
+        SELECT COALESCE((SELECT COUNT(*) FROM relations.ledger_friend WHERE family_id=#{familyId}), 0)
+             + COALESCE((SELECT COUNT(*) FROM relations.ledger_book WHERE family_id=#{familyId}), 0)
+             + COALESCE((SELECT COUNT(*) FROM relations.ledger_gift WHERE family_id=#{familyId}), 0)
+             + COALESCE((SELECT COUNT(*) FROM relations.ledger_loan WHERE family_id=#{familyId}), 0)
+             + COALESCE((SELECT COUNT(*) FROM relations.ledger_household_item WHERE family_id=#{familyId}), 0)
+    </select>
     <select id="members" resultType="com.base.system.modules.family.FamilyModels$User">
         SELECT CAST(u.id AS VARCHAR) AS id,COALESCE(NULLIF(TRIM(u.nickname),''),'家人') AS nickname FROM relations.ledger_member m JOIN relations.sys_user u ON u.id=m.user_id WHERE m.family_id=#{familyId} ORDER BY u.id
     </select>
+    <select id="history" resultType="com.base.system.modules.family.FamilyModels$Family">
+        SELECT * FROM relations.ledger_family WHERE hidden_owner=#{userId} ORDER BY id
+    </select>
+    <update id="archive">
+        UPDATE relations.ledger_family SET hidden_owner=#{userId} WHERE id=#{id}
+    </update>
     <insert id="insertFamily">
         INSERT INTO relations.ledger_family(id,name,hidden_owner) VALUES(#{id},#{name},#{hiddenOwner})
     </insert>
