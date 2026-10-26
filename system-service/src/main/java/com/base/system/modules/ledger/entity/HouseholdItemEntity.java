@@ -8,7 +8,7 @@ import lombok.Setter;
 
 import java.time.Instant;
 
-/** 月度分类合计实体。 */
+/** 家庭收支独立记录；同月同分类允许多笔。 */
 @Getter
 @Setter
 @TableName("relations.ledger_household_item")

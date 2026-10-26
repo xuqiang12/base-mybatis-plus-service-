@@ -125,8 +125,8 @@ public final class LedgerRequests {
         @NotBlank(message = "请选择月份")
         @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])", message = "月份格式无效")
         private String month;
-        @NotNull(message = "请填写月度分类合计")
-        @Size(max = 200, message = "月度分类过多")
+        @NotNull(message = "请填写本次收支")
+        @Size(min = 1, max = 200, message = "每次请填写1至200项收支")
         @Valid
         private List<MonthItem> items;
     }
@@ -140,7 +140,7 @@ public final class LedgerRequests {
         @NotBlank(message = "请选择收支方向")
         private String type;
         @NotNull(message = "请填写金额")
-        @PositiveOrZero(message = "金额不能小于0")
+        @Positive(message = "金额必须大于0")
         @Max(value = 9007199254740991L, message = "金额超出支持范围")
         private Long amountCents;
         @Size(max = 1000, message = "备注最多1000个字")

@@ -33,7 +33,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.ledger_money_transfer(family_id,from_project_id,amount_cents,created_by) VALUES ('cash-current',?,100,?)", bank, user);
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE cash_key='cash'", Long.class)).isEqualTo(2);
         long cash = jdbc.queryForObject("SELECT id FROM relations.ledger_money_project WHERE family_id='cash-current' AND cash_key='cash'", Long.class);
         assertThat(jdbc.queryForObject("SELECT project_id FROM relations.ledger_household_item WHERE family_id='cash-current'", Long.class)).isEqualTo(cash);
@@ -44,6 +44,9 @@ class FlywayMigrationTest {
                 Long.class, cash, cash);
         long income = jdbc.queryForObject("SELECT SUM(amount_cents) FROM relations.ledger_household_item WHERE project_id=?", Long.class, cash);
         assertThat(income + cashFlow).isEqualTo(800);
+        jdbc.update("INSERT INTO relations.ledger_household_item(month_id,family_id,category_id,project_id,type,amount_cents,created_by,created_by_name) VALUES (?,'cash-current',?,?,'income',2000,?,'对象工资')", month, category, cash, user);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_item WHERE month_id=? AND category_id=?", Long.class, month, category)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT SUM(amount_cents) FROM relations.ledger_household_item WHERE month_id=?", Long.class, month)).isEqualTo(3000);
         assertThat(upgraded.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE cash_key='cash'", Long.class)).isEqualTo(2);
     }
@@ -85,7 +88,7 @@ class FlywayMigrationTest {
                 .locations("classpath:db/system").load();
         var jdbc = new JdbcTemplate(datasource);
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(20);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(21);
         assertThat(jdbc.queryForList("SELECT \"version\" FROM relations.flyway_schema_history "
                 + "WHERE \"type\"='SQL' AND \"success\"=TRUE ORDER BY \"installed_rank\"", String.class))
                 .containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2.1", "2.2", "2.3", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8");
@@ -123,7 +126,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.sys_user(username,email,phone,password) VALUES ('existing','existing@example.test','13800000099','existing-hash')");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(11);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(12);
         assertThat(jdbc.queryForObject("SELECT email_verified FROM relations.sys_user WHERE username='existing'", Boolean.class)).isFalse();
         assertThat(jdbc.queryForObject("SELECT password FROM relations.sys_user WHERE username='existing'", String.class)).isEqualTo("existing-hash");
         assertThat(jdbc.queryForObject("SELECT nickname FROM relations.sys_user WHERE username='existing'", String.class)).isNull();
@@ -144,7 +147,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.sys_email_code(email,code_hash,expires_at,used) VALUES ('pending@example.test','old-digest',CURRENT_TIMESTAMP,FALSE)");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(10);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(11);
         assertThat(jdbc.queryForObject("SELECT email_verified FROM relations.sys_user WHERE username='previous-code-user'", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT password FROM relations.sys_user WHERE username='previous-code-user'", String.class)).isNull();
         assertThat(jdbc.queryForObject("SELECT used FROM relations.sys_email_code WHERE email='pending@example.test'", Boolean.class)).isTrue();
@@ -161,7 +164,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.sys_user(username,email,password,email_verified) VALUES ('before-nickname','before-nickname@example.test','existing-hash',TRUE)");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(9);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(10);
         var user = jdbc.queryForMap("SELECT nickname,password,email_verified FROM relations.sys_user WHERE username='before-nickname'");
         assertThat(user.get("nickname")).isNull();
         assertThat(user.get("password")).isEqualTo("existing-hash");

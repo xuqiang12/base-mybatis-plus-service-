@@ -79,7 +79,7 @@ class MoneyHttpTest {
         assertThat(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
                 "date", "2026-10-01", "amountCents", 1, "projectId", otherCash), token)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertMoney(token, 600, 800, 0, 0, 800);
+        assertMoney(token, 400, 600, 0, 0, 600);
         assertMoney(other, 0, 0, 0, 0, 0);
     }
 
@@ -94,7 +94,6 @@ class MoneyHttpTest {
         Object month = Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", salary, "type", "income", "amountCents", 50000000),
                 Map.of("categoryId", saving, "type", "saving", "amountCents", 20000000)));
-        ok(post("/ledger/household/month/save", month, token));
         ok(post("/ledger/household/month/save", month, token));
         assertMoney(token, 50000000, 50000000, 0, 0, 50000000);
         JsonNode summary = ok(post("/ledger/money/transfer", Map.of("type", "bank", "name", "银行存款",
@@ -130,35 +129,35 @@ class MoneyHttpTest {
         assertThat(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "amountCents", 1), other)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
-                Map.of("categoryId", salary, "type", "income", "amountCents", 1))), token)
+                Map.of("categoryId", expense, "type", "expense", "amountCents", 999999999))), token)
                 .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertMoney(token, 17500000, 46500000, 4000000, 1500000, 49000000);
     }
 
     @Test
-    void monthValidatesFinalStateAndProjectChangesIncludingNullArePersisted() {
+    void repeatedCategoryExpensesKeepTheirOwnProjectsAndValidateFinalBatchBalance() {
         String token = account();
         JsonNode data = ok(get("/ledger/data", token));
         long salary = category(data, "income");
         long expense = category(data, "expense");
         ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 400),
-                Map.of("categoryId", salary, "type", "income", "amountCents", 1000))), token));
+                Map.of("categoryId", salary, "type", "income", "amountCents", 2000))), token));
         long bank = ok(post("/ledger/money/transfer", Map.of("name", "银行", "type", "bank", "amountCents", 500), token))
                 .path("projects").get(1).path("id").asLong();
         ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 400, "projectId", bank))), token));
-        assertMoney(token, 500, 600, 0, 0, 600);
-        JsonNode edited = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
+        assertMoney(token, 1100, 1200, 0, 0, 1200);
+        JsonNode added = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 400))), token));
-        long cash = project(ok(get("/ledger/money", token)), "cash").path("id").asLong();
-        assertThat(edited.path("items").findValues("projectId")).allMatch(id -> id.asLong() == cash);
-        assertMoney(token, 100, 600, 0, 0, 600);
-        long record = edited.path("items").get(0).path("id").asLong();
-        // 删除收入会使已调拨资金无来源，事务必须保留原记录。
-        for (JsonNode item : edited.path("items")) if ("income".equals(item.path("type").asText())) record = item.path("id").asLong();
+        assertThat(added.path("items")).hasSize(4);
+        assertThat(added.path("items").findValues("id")).doesNotHaveDuplicates();
+        assertThat(added.path("items").findValues("projectId")).anyMatch(id -> id.asLong() == bank);
+        assertMoney(token, 700, 800, 0, 0, 800);
+        long record = 0;
+        for (JsonNode item : added.path("items")) if ("income".equals(item.path("type").asText())) record = item.path("id").asLong();
         assertThat(post("/ledger/household/delete", Map.of("id", record), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertMoney(token, 100, 600, 0, 0, 600);
+        assertMoney(token, 700, 800, 0, 0, 800);
     }
 
     @Test
