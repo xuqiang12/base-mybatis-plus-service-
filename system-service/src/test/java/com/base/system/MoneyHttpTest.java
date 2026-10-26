@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Map;
@@ -24,6 +25,63 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MoneyHttpTest {
     @Autowired
     private TestRestTemplate http;
+    @Autowired private JdbcTemplate jdbc;
+
+    @Test
+    void registrationPersistsOneCashProjectBeforeAnyMoneyRequest() {
+        String token = account();
+        String family = ok(get("/family/state", token)).path("family").path("id").asText();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE family_id=?",
+                Long.class, family)).isEqualTo(1);
+        JsonNode first = ok(get("/ledger/money", token));
+        assertThat(first.path("projects")).hasSize(1);
+        JsonNode cash = first.path("projects").get(0);
+        assertThat(cash.path("id").asLong()).isPositive();
+        assertThat(cash.path("type").asText()).isEqualTo("cash");
+        assertThat(cash.path("name").asText()).isEqualTo("现金");
+        assertThat(cash.path("balanceCents").asLong()).isZero();
+        assertThat(ok(get("/ledger/money", token)).path("projects")).isEqualTo(first.path("projects"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE family_id=?",
+                Long.class, family)).isEqualTo(1);
+    }
+
+    @Test
+    void realCashIdWorksForHouseholdAndTransfersWhileNullRequestsStoreTheSameId() {
+        String token = account();
+        long cash = project(ok(get("/ledger/money", token)), "cash").path("id").asLong();
+        JsonNode data = ok(get("/ledger/data", token));
+        long salary = category(data, "income");
+        long expense = category(data, "expense");
+        JsonNode month = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
+                Map.of("categoryId", salary, "type", "income", "amountCents", 1000, "projectId", cash),
+                Map.of("categoryId", expense, "type", "expense", "amountCents", 200, "projectId", cash))), token));
+        assertThat(month.path("items").findValues("projectId")).allMatch(id -> id.asLong() == cash);
+        JsonNode split = ok(post("/ledger/money/transfer", Map.of("fromProjectId", cash,
+                "type", "bank", "name", "银行", "amountCents", 300), token));
+        long bank = project(split, "bank").path("id").asLong();
+        ok(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "toProjectId", cash, "amountCents", 100), token));
+        assertMoney(token, 600, 800, 0, 0, 800);
+        JsonNode legacy = ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
+                "date", "2026-10-01", "amountCents", 200), token));
+        assertThat(legacy.path("projectId").asLong()).isEqualTo(cash);
+        assertThat(jdbc.queryForObject("SELECT project_id FROM relations.ledger_household_item WHERE id=?",
+                Long.class, legacy.path("id").asLong())).isEqualTo(cash);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_transfer WHERE from_project_id IS NULL OR to_project_id IS NULL",
+                Long.class)).isZero();
+        assertThat(post("/ledger/money/transfer", Map.of("fromProjectId", cash, "toProjectId", cash, "amountCents", 1), token)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/ledger/money/transfer", Map.of("fromProjectId", cash, "type", "cash", "name", "伪造现金", "amountCents", 1), token)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        String other = account();
+        long otherCash = project(ok(get("/ledger/money", other)), "cash").path("id").asLong();
+        assertThat(post("/ledger/money/transfer", Map.of("fromProjectId", cash, "toProjectId", otherCash, "amountCents", 1), token)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
+                "date", "2026-10-01", "amountCents", 1, "projectId", otherCash), token)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertMoney(token, 600, 800, 0, 0, 800);
+        assertMoney(other, 0, 0, 0, 0, 0);
+    }
 
     @Test
     void salarySplitsAndLoansKeepOneTotalAndRejectOverdraftAtomically() {
@@ -41,14 +99,14 @@ class MoneyHttpTest {
         assertMoney(token, 50000000, 50000000, 0, 0, 50000000);
         JsonNode summary = ok(post("/ledger/money/transfer", Map.of("type", "bank", "name", "银行存款",
                 "amountCents", 20000000, "note", "工资拆分"), token));
-        long bank = summary.path("projects").get(0).path("id").asLong();
+        long bank = project(summary, "bank").path("id").asLong();
         assertMoney(token, 30000000, 50000000, 0, 0, 50000000);
         ok(post("/ledger/money/transfer", Map.of("type", "stock", "name", "股票",
                 "amountCents", 10000000, "note", ""), token));
         assertMoney(token, 20000000, 50000000, 0, 0, 50000000);
         assertThat(post("/ledger/money/transfer", Map.of("name", "错误项目", "type", "other",
                 "amountCents", 30000000), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(ok(get("/ledger/money", token)).path("projects")).hasSize(2);
+        assertThat(ok(get("/ledger/money", token)).path("projects")).hasSize(3);
         ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 1000000, "projectId", bank))), token));
         assertMoney(token, 20000000, 49000000, 0, 0, 49000000);
@@ -87,13 +145,14 @@ class MoneyHttpTest {
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 400),
                 Map.of("categoryId", salary, "type", "income", "amountCents", 1000))), token));
         long bank = ok(post("/ledger/money/transfer", Map.of("name", "银行", "type", "bank", "amountCents", 500), token))
-                .path("projects").get(0).path("id").asLong();
+                .path("projects").get(1).path("id").asLong();
         ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 400, "projectId", bank))), token));
         assertMoney(token, 500, 600, 0, 0, 600);
         JsonNode edited = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", java.util.List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 400))), token));
-        assertThat(edited.path("items").findValues("projectId")).allMatch(JsonNode::isNull);
+        long cash = project(ok(get("/ledger/money", token)), "cash").path("id").asLong();
+        assertThat(edited.path("items").findValues("projectId")).allMatch(id -> id.asLong() == cash);
         assertMoney(token, 100, 600, 0, 0, 600);
         long record = edited.path("items").get(0).path("id").asLong();
         // 删除收入会使已调拨资金无来源，事务必须保留原记录。
@@ -110,18 +169,18 @@ class MoneyHttpTest {
         ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", salary,
                 "date", "2026-10-01", "amountCents", 1000), token));
         long bank = ok(post("/ledger/money/transfer", Map.of("name", "银行", "type", "bank", "amountCents", 500), token))
-                .path("projects").get(0).path("id").asLong();
+                .path("projects").get(1).path("id").asLong();
         assertThat(post("/ledger/money/transfer", Map.of("fromProjectId", bank,
                 "name", "禁止从银行拆分", "type", "stock", "amountCents", 200), token)
                 .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         JsonNode unchanged = ok(get("/ledger/money", token));
-        assertThat(unchanged.path("projects")).hasSize(1);
-        assertThat(unchanged.path("projects").get(0).path("balanceCents").asLong()).isEqualTo(500);
+        assertThat(unchanged.path("projects")).hasSize(2);
+        assertThat(project(unchanged, "bank").path("balanceCents").asLong()).isEqualTo(500);
         assertMoney(token, 500, 1000, 0, 0, 1000);
         JsonNode stocks = ok(post("/ledger/money/transfer", Map.of(
                 "name", "股票", "type", "stock", "amountCents", 200), token));
-        long stock = stocks.path("projects").get(1).path("id").asLong();
-        assertThat(stocks.path("projects").get(0).path("balanceCents").asLong()).isEqualTo(500);
+        long stock = project(stocks, "stock").path("id").asLong();
+        assertThat(project(stocks, "bank").path("balanceCents").asLong()).isEqualTo(500);
         ok(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "toProjectId", stock, "amountCents", 100), token));
         ok(post("/ledger/money/transfer", Map.of("fromProjectId", stock, "toProjectId", bank, "amountCents", 100), token));
         ok(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "amountCents", 200), token));
@@ -148,11 +207,12 @@ class MoneyHttpTest {
         long salary = category(ok(get("/ledger/data", token)), "income");
         ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", salary,
                 "date", "2026-10-01", "amountCents", 1000), token));
+        long cash = project(ok(get("/ledger/money", token)), "cash").path("id").asLong();
         var start = new java.util.concurrent.CountDownLatch(1);
         try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
             java.util.concurrent.Callable<Integer> split = () -> {
                 start.await();
-                return post("/ledger/money/transfer", Map.of("name", "银行", "type", "bank", "amountCents", 800), token)
+                return post("/ledger/money/transfer", Map.of("fromProjectId", cash, "name", "银行", "type", "bank", "amountCents", 800), token)
                         .getStatusCode().value();
             };
             var first = pool.submit(split);
@@ -162,7 +222,13 @@ class MoneyHttpTest {
                     second.get(15, java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(200, 409);
         }
         assertMoney(token, 200, 1000, 0, 0, 1000);
-        assertThat(ok(get("/ledger/money", token)).path("projects")).hasSize(1);
+        assertThat(ok(get("/ledger/money", token)).path("projects")).hasSize(2);
+    }
+
+    private JsonNode project(JsonNode summary, String type) {
+        for (JsonNode project : summary.path("projects"))
+            if (type.equals(project.path("type").asText())) return project;
+        throw new AssertionError(type);
     }
 
     private long category(JsonNode data, String type) {
@@ -178,6 +244,11 @@ class MoneyHttpTest {
         assertThat(value.path("lentCents").asLong()).isEqualTo(lent);
         assertThat(value.path("debtCents").asLong()).isEqualTo(debt);
         assertThat(value.path("totalCents").asLong()).isEqualTo(total);
+        assertThat(value.path("projects").get(0).path("type").asText()).isEqualTo("cash");
+        assertThat(value.path("projects").get(0).path("balanceCents").asLong()).isEqualTo(cash);
+        long projectTotal = 0;
+        for (JsonNode project : value.path("projects")) projectTotal += project.path("balanceCents").asLong();
+        assertThat(projectTotal).isEqualTo(held);
     }
 
     private String account() {

@@ -3,6 +3,7 @@ package com.base.system.modules.family;
 import com.base.common.exception.BusinessException;
 import com.base.system.modules.family.FamilyModels.*;
 import com.base.system.modules.family.mapper.FamilyMapper;
+import com.base.system.modules.ledger.MoneyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ import com.base.system.security.JwtSigningProperties;
 @Transactional
 public class FamilyService {
     private final FamilyMapper mapper;
+    private final MoneyService moneyService;
     private final JwtEncoder encoder;
     private final JwtDecoder decoder;
     private final JwtSigningProperties signing;
@@ -145,6 +147,7 @@ public class FamilyService {
         f.setId(UUID.randomUUID().toString());
         f.setName("我的家庭");
         mapper.insertFamily(f);
+        moneyService.initializeCash(f.getId());
         return f;
     }
 

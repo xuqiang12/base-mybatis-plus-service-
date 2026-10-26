@@ -21,6 +21,14 @@ public class MoneyService {
     private final JdbcTemplate jdbc;
     private final FamilyMapper familyMapper;
 
+    /** 新家庭创建事务内初始化；读取资金时不再创建项目。 */
+    @Transactional
+    public void initializeCash(String familyId) {
+        jdbc.update("INSERT INTO relations.ledger_money_project(family_id,type,name,cash_key) "
+                + "SELECT ?, 'other', '现金', 'cash' WHERE NOT EXISTS "
+                + "(SELECT 1 FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash')", familyId, familyId);
+    }
+
     @Transactional
     public LedgerResponses.MoneySummary summary(int userId) {
         return familySummary(lockFamily(userId));
@@ -29,12 +37,10 @@ public class MoneyService {
     @Transactional
     public LedgerResponses.MoneySummary transfer(int userId, LedgerRequests.MoneyTransfer request) {
         String familyId = lockFamily(userId);
-        Long from = request.getFromProjectId();
+        Long from = resolveProject(familyId, request.getFromProjectId());
         Long to = request.getToProjectId();
-        requireProject(familyId, from);
-        requireProject(familyId, to);
         if (to == null && request.getName() != null && !request.getName().isBlank()) {
-            if (from != null) throw new BusinessException(400, "只能从剩余现金拆分新项目");
+            if (!from.equals(cashId(familyId))) throw new BusinessException(400, "只能从剩余现金拆分新项目");
             if (!Set.of("bank", "stock", "other").contains(request.getType() == null ? "" : request.getType()))
                 throw new BusinessException(400, "请选择有效的项目类型");
             var key = new GeneratedKeyHolder();
@@ -49,6 +55,8 @@ public class MoneyService {
                 return statement;
             }, key);
             to = key.getKey().longValue();
+        } else {
+            to = resolveProject(familyId, to);
         }
         if (Objects.equals(from, to)) throw new BusinessException(400, "请选择不同的来源和目标");
         jdbc.update("INSERT INTO relations.ledger_money_transfer(family_id,from_project_id,to_project_id,amount_cents,note,created_by) VALUES (?,?,?,?,?,?)",
@@ -57,11 +65,17 @@ public class MoneyService {
     }
 
     // 项目编号必须属于持锁家庭，不能只凭外键存在就跨家庭使用。
-    void requireProject(String familyId, Long projectId) {
-        if (projectId != null && jdbc.queryForObject(
+    Long resolveProject(String familyId, Long projectId) {
+        if (projectId == null) return cashId(familyId);
+        if (jdbc.queryForObject(
                 "SELECT COUNT(*) FROM relations.ledger_money_project WHERE family_id=? AND id=?",
                 Long.class, familyId, projectId) == 0)
             throw new BusinessException(404, "资金项目不存在");
+        return projectId;
+    }
+
+    private Long cashId(String familyId) {
+        return jdbc.queryForObject("SELECT id FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash'", Long.class, familyId);
     }
 
     /** 调用方已持家庭行锁；全部写完后统一检查，失败由原事务回滚。 */
@@ -76,37 +90,30 @@ public class MoneyService {
     }
 
     private LedgerResponses.MoneySummary familySummary(String familyId) {
-        var projects = jdbc.query("SELECT id,type,name,note FROM relations.ledger_money_project WHERE family_id=? ORDER BY id",
+        var projects = jdbc.query("SELECT id,type,name,note,cash_key FROM relations.ledger_money_project WHERE family_id=? "
+                        + "ORDER BY CASE WHEN cash_key='cash' THEN 0 ELSE 1 END, id",
                 (row, index) -> {
                     var project = new LedgerResponses.MoneyProject();
                     project.setId(row.getLong("id"));
-                    project.setType(row.getString("type"));
+                    project.setType("cash".equals(row.getString("cash_key")) ? "cash" : row.getString("type"));
                     project.setName(row.getString("name"));
                     project.setNote(row.getString("note"));
                     return project;
                 }, familyId);
         var byId = projects.stream().collect(java.util.stream.Collectors.toMap(LedgerResponses.MoneyProject::getId, item -> item));
-        long household = 0;
         // saving 是旧版月表的独立统计项，不是第二份资金。
         for (var item : jdbc.queryForList("SELECT project_id,type,amount_cents FROM relations.ledger_household_item WHERE family_id=? AND type IN ('income','expense')", familyId)) {
             long amount = ((Number) item.get("amount_cents")).longValue();
             if ("expense".equals(item.get("type"))) amount = -amount;
-            household += amount;
-            if (item.get("project_id") != null) {
-                var project = byId.get(((Number) item.get("project_id")).longValue());
-                project.setBalanceCents(project.getBalanceCents() + amount);
-            }
+            var project = byId.get(((Number) item.get("project_id")).longValue());
+            project.setBalanceCents(project.getBalanceCents() + amount);
         }
         for (var item : jdbc.queryForList("SELECT from_project_id,to_project_id,amount_cents FROM relations.ledger_money_transfer WHERE family_id=?", familyId)) {
             long amount = ((Number) item.get("amount_cents")).longValue();
-            if (item.get("from_project_id") != null) {
-                var project = byId.get(((Number) item.get("from_project_id")).longValue());
-                project.setBalanceCents(project.getBalanceCents() - amount);
-            }
-            if (item.get("to_project_id") != null) {
-                var project = byId.get(((Number) item.get("to_project_id")).longValue());
-                project.setBalanceCents(project.getBalanceCents() + amount);
-            }
+            var from = byId.get(((Number) item.get("from_project_id")).longValue());
+            var to = byId.get(((Number) item.get("to_project_id")).longValue());
+            from.setBalanceCents(from.getBalanceCents() - amount);
+            to.setBalanceCents(to.getBalanceCents() + amount);
         }
         long lent = 0;
         long debt = 0;
@@ -119,9 +126,12 @@ public class MoneyService {
                 case "pay" -> debt -= amount;
             }
         }
-        long held = household - lent + debt;
+        var cash = projects.stream().filter(project -> "cash".equals(project.getType())).findFirst().orElseThrow();
+        // 借贷实际收付款进入现金；现金和其他项目各自只汇总一次。
+        cash.setBalanceCents(cash.getBalanceCents() - lent + debt);
+        long held = projects.stream().mapToLong(LedgerResponses.MoneyProject::getBalanceCents).sum();
         var result = new LedgerResponses.MoneySummary();
-        result.setCashCents(held - projects.stream().mapToLong(LedgerResponses.MoneyProject::getBalanceCents).sum());
+        result.setCashCents(cash.getBalanceCents());
         result.setHeldCents(held);
         result.setLentCents(lent);
         result.setDebtCents(debt);

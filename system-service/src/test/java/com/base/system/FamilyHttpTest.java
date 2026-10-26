@@ -35,6 +35,8 @@ class FamilyHttpTest {
         JsonNode state = state(token);
         assertThat(state.path("family").path("members").size()).isEqualTo(1);
         assertThat(state.path("localUsers").size()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash'",
+                Long.class, state.path("family").path("id").asText())).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='relations' "
                 + "AND table_name IN ('ledger_invitation','ledger_friend','ledger_book','ledger_gift',"
@@ -62,6 +64,9 @@ class FamilyHttpTest {
         ok(post("/family/leave", Map.of(), b, shared));
         assertThat(family(a)).isEqualTo(shared);
         assertThat(family(b)).isNotEqualTo(shared);
+        // 退出后创建的新独立家庭在返回前就已拥有现金项目。
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash'",
+                Long.class, family(b))).isEqualTo(1);
         assertThat(state(a).path("family").path("members").size()).isEqualTo(1);
         assertThat(state(b).path("family").path("members").size()).isEqualTo(1);
         assertThat(post("/family/leave", Map.of(), b, family(b)).getStatusCode().value()).isEqualTo(400);
