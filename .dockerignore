@@ -1,0 +1,17 @@
+**
+!pom.xml
+!.mvn/
+!.mvn/settings.xml
+!base-common/
+!base-common/**
+!base-security/
+!base-security/**
+!system-service/
+!system-service/**
+!sql/
+!sql/**
+**/target/
+**/application-local.yml
+**/.env
+**/.env.*
+**/*.log
