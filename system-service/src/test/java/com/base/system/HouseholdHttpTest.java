@@ -60,6 +60,40 @@ class HouseholdHttpTest {
     }
 
     @Test
+    void monthSaveRetainsManualSavingsWhenRemainingBalanceIsAllocatedToExpense() {
+        String token = account();
+        JsonNode data = ok(get("/ledger/data", token));
+        long income = findCategory(data.path("householdCategories"), "income", "工资");
+        long expense = findCategory(data.path("householdCategories"), "expense", "餐饮");
+        long saving = findCategory(data.path("householdCategories"), "saving", "存款");
+        JsonNode first = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
+                Map.of("categoryId", income, "type", "income", "amountCents", 1000000),
+                Map.of("categoryId", expense, "type", "expense", "amountCents", 600000),
+                Map.of("categoryId", saving, "type", "saving", "amountCents", 300000))), token));
+        JsonNode updated = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
+                Map.of("categoryId", income, "type", "income", "amountCents", 1000000),
+                Map.of("categoryId", expense, "type", "expense", "amountCents", 650000),
+                Map.of("categoryId", saving, "type", "saving", "amountCents", 300000))), token));
+        assertThat(updated.path("id")).isEqualTo(first.path("id"));
+        JsonNode restored = ok(get("/ledger/household/month?month=2026-10", token));
+        assertThat(restored.path("items")).hasSize(3);
+        for (JsonNode item : restored.path("items")) {
+            long expected = switch (item.path("type").asText()) {
+                case "income" -> 1000000L;
+                case "expense" -> 650000L;
+                case "saving" -> 300000L;
+                default -> throw new AssertionError("unexpected household type");
+            };
+            assertThat(item.path("amountCents").asLong()).isEqualTo(expected);
+        }
+        ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
+                Map.of("categoryId", saving, "type", "saving", "amountCents", 0))), token));
+        JsonNode cleared = ok(get("/ledger/household/month?month=2026-10", token));
+        assertThat(cleared.path("items")).hasSize(2);
+        assertThat(cleared.path("items").findValuesAsText("type")).containsExactlyInAnyOrder("income", "expense");
+    }
+
+    @Test
     void categoryUpdateDoesNotRequireAnUnchangeableType() {
         String token = account();
         JsonNode data = ok(get("/ledger/data", token));
