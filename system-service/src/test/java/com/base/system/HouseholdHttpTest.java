@@ -111,6 +111,11 @@ class HouseholdHttpTest {
         long incomeCategory = findCategory(data.path("householdCategories"), "income", "工资");
         long savingCategory = findCategory(data.path("householdCategories"), "saving", "存款");
 
+        // 支出现在会校验资金来源，先记录真实收入。
+        ok(post("/ledger/household/save", Map.of(
+                "type", "income", "categoryId", incomeCategory, "amountCents", 500000,
+                "date", "2026-10-20", "note", "工资"), token));
+
         JsonNode first = ok(post("/ledger/household/save", Map.of(
                 "type", "expense", "categoryId", expenseCategory, "amountCents", 12000,
                 "date", "2026-10-01", "note", "第一次填写"), token));

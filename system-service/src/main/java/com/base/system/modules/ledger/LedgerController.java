@@ -15,6 +15,18 @@ import org.springframework.web.bind.annotation.*;
 public class LedgerController {
     private final LedgerService service;
     private final HouseholdService householdService;
+    private final MoneyService moneyService;
+
+    @GetMapping("/money")
+    public LedgerResponses.MoneySummary money(@AuthenticationPrincipal LoginUser user) {
+        return moneyService.summary(user.id());
+    }
+
+    @PostMapping("/money/transfer")
+    public LedgerResponses.MoneySummary transfer(@AuthenticationPrincipal LoginUser user,
+                                                 @Valid @RequestBody LedgerRequests.MoneyTransfer request) {
+        return moneyService.transfer(user.id(), request);
+    }
 
     @GetMapping("/data")
     public LedgerResponses.DataSet data(@AuthenticationPrincipal LoginUser user) {

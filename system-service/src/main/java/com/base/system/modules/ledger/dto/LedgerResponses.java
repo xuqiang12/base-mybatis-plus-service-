@@ -61,6 +61,7 @@ public final class LedgerResponses {
 
     @Data
     public static class Household {
+        private Long projectId;
         private Long id;
         private String type;
         private Long categoryId;
@@ -98,5 +99,24 @@ public final class LedgerResponses {
         private List<Loan> loanRecords = List.of();
         private List<Category> householdCategories = List.of();
         private List<Household> householdRecords = List.of();
+    }
+
+    @Data
+    public static class MoneyProject {
+        private Long id;
+        private String type;
+        private String name;
+        private String note;
+        private long balanceCents;
+    }
+
+    @Data
+    public static class MoneySummary {
+        private long cashCents;
+        private long heldCents;
+        private long lentCents;
+        private long debtCents;
+        private long totalCents;
+        private List<MoneyProject> projects;
     }
 }

@@ -35,6 +35,7 @@ public class HouseholdService {
     private final HouseholdMonthMapper monthMapper;
     private final HouseholdItemMapper itemMapper;
     private final FamilyMapper familyMapper;
+    private final MoneyService moneyService;
 
     /** 返回当前家庭分类和月度分类合计。 */
     @Transactional
@@ -160,6 +161,7 @@ public class HouseholdService {
             CategoryEntity category = categories.get(item.getCategoryId());
             if (category == null) throw new BusinessException(404, "分类不存在");
             if (!category.getType().equals(item.getType())) throw new BusinessException(400, "收支方向与分类不一致");
+            moneyService.requireProject(familyId, item.getProjectId());
             HouseholdItemEntity existing = byCategory.get(item.getCategoryId());
             if (item.getAmountCents() == 0) {
                 if (existing != null) itemMapper.deleteById(existing.getId());
@@ -177,10 +179,13 @@ public class HouseholdService {
                 if (createdByName == null) createdByName = value(familyMapper.userName(userId));
                 existing.setCreatedByName(createdByName);
                 existing.setCreatedAt(Instant.now());
-            } else if (existing.getAmountCents().equals(item.getAmountCents()) && value(existing.getNote()).equals(value(item.getNote()))) {
+            } else if (existing.getAmountCents().equals(item.getAmountCents())
+                    && java.util.Objects.equals(existing.getProjectId(), item.getProjectId())
+                    && value(existing.getNote()).equals(value(item.getNote()))) {
                 continue;
             }
             existing.setAmountCents(item.getAmountCents());
+            existing.setProjectId(item.getProjectId());
             existing.setNote(value(item.getNote()));
             existing.setUpdatedAt(Instant.now());
             if (existing.getId() == null) itemMapper.insert(existing); else itemMapper.updateById(existing);
@@ -189,6 +194,7 @@ public class HouseholdService {
             month.setUpdatedAt(Instant.now());
             monthMapper.updateById(month);
         }
+        moneyService.validateBalances(familyId);
         return monthResponse(familyId, date);
     }
 
@@ -211,6 +217,7 @@ public class HouseholdService {
     @Transactional
     public LedgerResponses.Household saveRecord(int userId, LedgerRequests.Household request) {
         String familyId = currentFamily(userId, true);
+        moneyService.requireProject(familyId, request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
         if (!Boolean.TRUE.equals(category.getActive())) throw new BusinessException(409, "分类已停用");
@@ -229,9 +236,11 @@ public class HouseholdService {
             existing.setCreatedAt(Instant.now());
         }
         existing.setAmountCents(request.getAmountCents());
+        existing.setProjectId(request.getProjectId());
         existing.setNote(value(request.getNote()));
         existing.setUpdatedAt(Instant.now());
         if (existing.getId() == null) itemMapper.insert(existing); else itemMapper.updateById(existing);
+        moneyService.validateBalances(familyId);
         return household(existing, request.getDate().withDayOfMonth(1).toString());
     }
 
@@ -241,6 +250,7 @@ public class HouseholdService {
         HouseholdItemEntity existing = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getId, request.getId()).eq(HouseholdItemEntity::getFamilyId, familyId));
         if (existing == null) throw new BusinessException(404, "收支记录不存在");
+        moneyService.requireProject(familyId, request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
         HouseholdMonthEntity month = month(familyId, request.getDate(), true);
@@ -252,9 +262,11 @@ public class HouseholdService {
         existing.setCategoryId(category.getId());
         existing.setType(request.getType());
         existing.setAmountCents(request.getAmountCents());
+        existing.setProjectId(request.getProjectId());
         existing.setNote(value(request.getNote()));
         existing.setUpdatedAt(Instant.now());
         itemMapper.updateById(existing);
+        moneyService.validateBalances(familyId);
         return household(existing, request.getDate().withDayOfMonth(1).toString());
     }
 
@@ -267,6 +279,7 @@ public class HouseholdService {
         itemMapper.deleteById(id);
         if (itemMapper.selectCount(new LambdaQueryWrapper<HouseholdItemEntity>().eq(HouseholdItemEntity::getMonthId, item.getMonthId())) == 0)
             monthMapper.deleteById(item.getMonthId());
+        moneyService.validateBalances(familyId);
     }
 
     private void ensureCategories(String familyId) {

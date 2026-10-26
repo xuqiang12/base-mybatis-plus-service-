@@ -30,6 +30,7 @@ class LoanHttpTest {
     @Test
     void repaymentCannotExceedOutstandingBalanceAndBlocksFriendDelete() {
         String token = account();
+        salary(token);
         JsonNode lend = ok(post("/ledger/loan/create", Map.of(
                 "direction", "lend", "name", "张三", "appellation", "同事",
                 "amountCents", 10000, "date", "2026-10-20", "note", ""), token));
@@ -48,6 +49,7 @@ class LoanHttpTest {
     @Test
     void concurrentRepaymentsCannotSpendTheSameOutstandingBalance() throws Exception {
         String token = account();
+        salary(token);
         JsonNode created = ok(post("/ledger/loan/create", Map.of("direction", "lend", "name", "并发亲友",
                 "amountCents", 10000, "date", "2026-10-01"), token));
         long friendId = created.path("record").path("friendId").asLong();
@@ -77,6 +79,20 @@ class LoanHttpTest {
                 "nickname", "测试家人", "password", "loan-test-password"), null));
         return ok(post("/auth/login", Map.of("account", email, "password", "loan-test-password"), null))
                 .path("token").asText();
+    }
+
+    private void salary(String token) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        JsonNode data = ok(http.exchange("/ledger/data", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class));
+        for (JsonNode category : data.path("householdCategories")) {
+            if ("income".equals(category.path("type").asText())) {
+                ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", category.path("id").asLong(),
+                        "amountCents", 100000, "date", "2026-10-01"), token));
+                return;
+            }
+        }
+        throw new AssertionError("工资分类不存在");
     }
 
     private JsonNode ok(ResponseEntity<JsonNode> response) {

@@ -105,6 +105,7 @@ public final class LedgerRequests {
 
     @Data
     public static class Household {
+        private Long projectId;
         @NotBlank(message = "请选择收支方向")
         private String type;
         @NotNull(message = "请选择分类")
@@ -132,6 +133,7 @@ public final class LedgerRequests {
 
     @Data
     public static class MonthItem {
+        private Long projectId;
         @NotNull(message = "请选择分类")
         @Positive(message = "分类编号无效")
         private Long categoryId;
@@ -150,5 +152,22 @@ public final class LedgerRequests {
         @NotNull(message = "请选择记录")
         @Positive(message = "记录编号无效")
         private Long id;
+    }
+
+    @Data
+    public static class MoneyTransfer {
+        @Positive(message = "请选择有效的来源项目")
+        private Long fromProjectId;
+        @Positive(message = "请选择有效的目标项目")
+        private Long toProjectId;
+        private String type;
+        @Size(max = 100, message = "项目名称最多100个字")
+        private String name;
+        @NotNull(message = "请填写调拨金额")
+        @Positive(message = "调拨金额必须大于0")
+        @Max(value = 9007199254740991L, message = "金额超出支持范围")
+        private Long amountCents;
+        @Size(max = 1000, message = "备注最多1000个字")
+        private String note = "";
     }
 }

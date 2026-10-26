@@ -38,6 +38,7 @@ public class LedgerService {
     private final HouseholdService householdService;
     private final FriendMapper friendMapper;
     private final FamilyMapper familyMapper;
+    private final MoneyService moneyService;
 
     /** 返回当前家庭的账簿、人情和亲友。 */
     @Transactional
@@ -188,6 +189,7 @@ public class LedgerService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         loanMapper.insert(entity);
+        moneyService.validateBalances(familyId);
         LedgerResponses.CreatedLoan result = new LedgerResponses.CreatedLoan();
         result.setRecord(loan(entity));
         result.setFriend(request.getFriendId() == null ? friend(friend) : null);
