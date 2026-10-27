@@ -9,6 +9,7 @@ import com.base.system.modules.ledger.dto.LedgerResponses;
 import com.base.system.modules.ledger.entity.CategoryEntity;
 import com.base.system.modules.ledger.entity.HouseholdItemEntity;
 import com.base.system.modules.ledger.entity.HouseholdMonthEntity;
+import com.base.system.modules.ledger.entity.LoanEntity;
 import com.base.system.modules.ledger.mapper.CategoryMapper;
 import com.base.system.modules.ledger.mapper.HouseholdItemMapper;
 import com.base.system.modules.ledger.mapper.HouseholdMonthMapper;
@@ -170,6 +171,7 @@ public class HouseholdService {
             record.setNote(value(item.getNote()));
             record.setUpdatedAt(Instant.now());
             itemMapper.insert(record);
+            moneyService.recordHousehold(familyId, record, category.getName(), "create");
         }
         month.setUpdatedAt(Instant.now());
         monthMapper.updateById(month);
@@ -216,6 +218,7 @@ public class HouseholdService {
         existing.setUpdatedAt(Instant.now());
         itemMapper.insert(existing);
         moneyService.validateBalances(familyId);
+        moneyService.recordHousehold(familyId, existing, category.getName(), "create");
         return household(existing, request.getDate().withDayOfMonth(1).toString());
     }
 
@@ -225,16 +228,18 @@ public class HouseholdService {
         HouseholdItemEntity existing = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getId, request.getId()).eq(HouseholdItemEntity::getFamilyId, familyId));
         if (existing == null) throw new BusinessException(404, "收支记录不存在");
+        if (existing.getLoanId() != null) throw new BusinessException(409, "借贷关联存款记录不能单独修改");
+        HouseholdMonthEntity month = monthMapper.selectById(existing.getMonthId());
+        if (!month.getMonthValue().equals(request.getDate().toString().substring(0, 7)))
+            throw new BusinessException(400, "月份不可修改，请删除后在其他月份新增");
         // 旧存款始终只改统计，不因编辑金额或备注而重放现金转账。
         boolean linkedSaving = "saving".equals(request.getType())
                 && (!"saving".equals(existing.getType()) || Boolean.TRUE.equals(existing.getSavingTransfer()));
-        Long projectId = linkedSaving
+        Long projectId = linkedSaving || "income".equals(request.getType())
                 ? moneyService.resolveHouseholdProject(familyId, request.getType(), request.getProjectId())
                 : moneyService.resolveProject(familyId, request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
-        HouseholdMonthEntity month = month(familyId, request.getDate(), true);
-        existing.setMonthId(month.getId());
         existing.setCategoryId(category.getId());
         existing.setType(request.getType());
         existing.setAmountCents(request.getAmountCents());
@@ -244,6 +249,7 @@ public class HouseholdService {
         existing.setUpdatedAt(Instant.now());
         itemMapper.updateById(existing);
         moneyService.validateBalances(familyId);
+        moneyService.recordHousehold(familyId, existing, category.getName(), "update");
         return household(existing, request.getDate().withDayOfMonth(1).toString());
     }
 
@@ -253,10 +259,39 @@ public class HouseholdService {
         HouseholdItemEntity item = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getId, id).eq(HouseholdItemEntity::getFamilyId, familyId));
         if (item == null) throw new BusinessException(404, "收支记录不存在");
+        if (item.getLoanId() != null) throw new BusinessException(409, "借贷关联存款记录不能单独删除");
         itemMapper.deleteById(id);
         if (itemMapper.selectCount(new LambdaQueryWrapper<HouseholdItemEntity>().eq(HouseholdItemEntity::getMonthId, item.getMonthId())) == 0)
             monthMapper.deleteById(item.getMonthId());
         moneyService.validateBalances(familyId);
+        moneyService.recordHousehold(familyId, item, ownedCategory(familyId, item.getCategoryId()).getName(), "delete");
+    }
+
+    /** 调用方已持家庭锁并开启借贷事务；此记录只进入存款统计。 */
+    LedgerResponses.Household createLoanSavingRecord(String familyId, int userId, LoanEntity loan, Long projectId) {
+        ensureCategories(familyId);
+        CategoryEntity category = categoryMapper.selectOne(new LambdaQueryWrapper<CategoryEntity>()
+                .eq(CategoryEntity::getFamilyId, familyId).eq(CategoryEntity::getType, "saving"));
+        HouseholdMonthEntity month = month(familyId, loan.getDate(), true);
+        HouseholdItemEntity item = new HouseholdItemEntity();
+        item.setFamilyId(familyId);
+        item.setMonthId(month.getId());
+        item.setCategoryId(category.getId());
+        item.setType("saving");
+        item.setProjectId(projectId);
+        item.setLoanId(loan.getId());
+        item.setSavingTransfer(false);
+        boolean lend = "lend".equals(loan.getDirection());
+        item.setSavingEffect(lend ? "add" : "subtract");
+        item.setAmountCents(loan.getAmountCents());
+        String amount = java.math.BigDecimal.valueOf(loan.getAmountCents(), 2).stripTrailingZeros().toPlainString();
+        item.setNote((lend ? "借给" : "收回") + loan.getName() + amount + "元");
+        item.setCreatedBy(userId);
+        item.setCreatedByName(loan.getCreatedByName());
+        item.setCreatedAt(Instant.now());
+        item.setUpdatedAt(Instant.now());
+        itemMapper.insert(item);
+        return household(item, loan.getDate().withDayOfMonth(1).toString());
     }
 
     private void ensureCategories(String familyId) {

@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Map;
@@ -26,6 +27,81 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LoanHttpTest {
     @Autowired
     private TestRestTemplate http;
+    @Autowired private JdbcTemplate jdbc;
+
+    @Test
+    void selectedAccountChangesOnceAndReturnsProtectedSavingRecords() {
+        String token = account();
+        salary(token);
+        JsonNode money = ok(post("/ledger/money/transfer", Map.of("type", "bank", "name", "借贷银行卡",
+                "amountCents", 20000), token));
+        long bank = money.path("projects").get(1).path("id").asLong();
+        JsonNode lent = ok(post("/ledger/loan/create", Map.of("direction", "lend", "name", "张三",
+                "amountCents", 10000, "date", "2026-10-20", "projectId", bank, "note", "用户备注"), token));
+        JsonNode record = lent.path("record");
+        assertThat(record.path("projectId").asLong()).isEqualTo(bank);
+        assertThat(record.path("note").asText()).isEqualTo("用户备注");
+        JsonNode saving = lent.path("householdRecord");
+        assertThat(saving.path("loanId").asLong()).isEqualTo(record.path("id").asLong());
+        assertThat(saving.path("savingEffect").asText()).isEqualTo("add");
+        assertThat(saving.path("projectId").asLong()).isEqualTo(bank);
+        assertThat(saving.path("date").asText()).isEqualTo("2026-10-01");
+        assertThat(saving.path("note").asText()).isEqualTo("借给张三100元");
+        JsonNode received = ok(post("/ledger/loan/create", Map.of("direction", "receive", "name", "张三",
+                "friendId", record.path("friendId").asLong(), "amountCents", 3000,
+                "date", "2026-10-21", "projectId", bank), token));
+        assertThat(received.path("householdRecord").path("savingEffect").asText()).isEqualTo("subtract");
+        assertThat(received.path("householdRecord").path("note").asText()).isEqualTo("收回张三30元");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        JsonNode summary = ok(http.exchange("/ledger/money", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class));
+        assertThat(summary.path("cashCents").asLong()).isEqualTo(80000);
+        assertThat(summary.path("projects").get(1).path("balanceCents").asLong()).isEqualTo(13000);
+        assertThat(summary.path("lentCents").asLong()).isEqualTo(7000);
+        assertThat(summary.path("totalCents").asLong()).isEqualTo(100000);
+        assertThat(jdbc.queryForObject("SELECT saving_transfer FROM relations.ledger_household_item WHERE id=?",
+                Boolean.class, saving.path("id").asLong())).isFalse();
+        assertThat(post("/ledger/household/update", Map.of("id", saving.path("id").asLong(), "type", "saving",
+                "categoryId", saving.path("categoryId").asLong(), "amountCents", 1,
+                "date", "2026-10-01", "projectId", bank), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(post("/ledger/household/delete", Map.of("id", saving.path("id").asLong()), token)
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void insufficientSelectedAccountRollsBackFriendLoanSavingAndMonth() {
+        String token = account();
+        salary(token);
+        long bank = ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "空银行卡"), token))
+                .path("projects").get(1).path("id").asLong();
+        String family = jdbc.queryForObject("SELECT family_id FROM relations.ledger_money_project WHERE id=?", String.class, bank);
+        long householdCount = jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_item WHERE family_id=?", Long.class, family);
+        ResponseEntity<JsonNode> response = post("/ledger/loan/create", Map.of("direction", "lend", "name", "失败亲友",
+                "amountCents", 100, "date", "2026-11-20", "projectId", bank), token);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().toString()).contains("空银行卡余额不足");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_friend WHERE family_id=?", Long.class, family)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_loan WHERE family_id=?", Long.class, family)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_item WHERE family_id=?", Long.class, family)).isEqualTo(householdCount);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_month WHERE family_id=? AND month_value='2026-11'", Long.class, family)).isZero();
+        assertThat(post("/ledger/loan/create", Map.of("direction", "borrow", "name", "跨家庭",
+                "amountCents", 100, "date", "2026-10-20", "projectId", bank), account()).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void borrowAndPayUseSelectedAccountAndProtectLoanOnlyReferences() {
+        String token = account();
+        long bank = ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "借入账户"), token))
+                .path("projects").get(1).path("id").asLong();
+        JsonNode borrowed = ok(post("/ledger/loan/create", Map.of("direction", "borrow", "name", "李四",
+                "amountCents", 10000, "date", "2026-10-20", "projectId", bank), token));
+        assertThat(borrowed.path("record").path("projectId").asLong()).isEqualTo(bank);
+        assertThat(borrowed.path("householdRecord").isNull()).isTrue();
+        ok(post("/ledger/loan/create", Map.of("direction", "pay", "name", "李四", "friendId", borrowed.path("record").path("friendId").asLong(),
+                "amountCents", 10000, "date", "2026-10-21", "projectId", bank), token));
+        assertThat(post("/ledger/money/project/delete", Map.of("id", bank), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
 
     @Test
     void repaymentCannotExceedOutstandingBalanceAndBlocksFriendDelete() {
@@ -44,6 +120,11 @@ class LoanHttpTest {
         assertThat(over.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         ResponseEntity<JsonNode> deleted = post("/friend/delete", Map.of("id", friendId), token);
         assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        JsonNode data = ok(http.exchange("/ledger/data", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class));
+        assertThat(data.path("loanRecords")).hasSize(2);
+        assertThat(data.path("householdRecords").findValues("loanId").stream().filter(id -> !id.isNull())).hasSize(2);
     }
 
     @Test

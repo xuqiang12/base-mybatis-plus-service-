@@ -18,8 +18,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 @Slf4j
 public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> business(BusinessException e) {
-        return failure(e.getStatus(), e.getMessage());
+    public ResponseEntity<ApiResponse<Object>> business(BusinessException e) {
+        return ResponseEntity.status(e.getStatus()).body(new ApiResponse<>(e.getStatus(), e.getMessage(), e.getData()));
     }
 
     @ExceptionHandler(BindException.class)

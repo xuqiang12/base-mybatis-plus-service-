@@ -28,6 +28,20 @@ public class LedgerController {
         return moneyService.transfer(user.id(), request);
     }
 
+    @GetMapping("/money/timeline")
+    public LedgerResponses.MoneyTimeline moneyTimeline(@AuthenticationPrincipal LoginUser user,
+                                                       @RequestParam(required = false) Long beforeId,
+                                                       @RequestParam(required = false) String month,
+                                                       @RequestParam(required = false) String keyword) {
+        return moneyService.timeline(user.id(), beforeId, month, keyword);
+    }
+
+    @GetMapping("/money/timeline/months")
+    public java.util.List<LedgerResponses.MoneyMonth> moneyTimelineMonths(@AuthenticationPrincipal LoginUser user,
+                                                                         @RequestParam(required = false) String keyword) {
+        return moneyService.timelineMonths(user.id(), keyword);
+    }
+
     @PostMapping("/money/project/create")
     public LedgerResponses.MoneySummary createMoneyProject(@AuthenticationPrincipal LoginUser user,
                                                            @Valid @RequestBody LedgerRequests.MoneyProject request) {

@@ -64,6 +64,7 @@ public final class LedgerRequests {
 
     @Data
     public static class Loan {
+        private Long projectId;
         @NotBlank(message = "请选择借贷操作")
         private String direction;
         @NotBlank(message = "姓名不能为空")
@@ -164,6 +165,10 @@ public final class LedgerRequests {
         private String name;
         @Size(max = 200, message = "备注最多200个字")
         private String note = "";
+        @NotNull(message = "期初余额不能为空")
+        @Min(value = 0, message = "期初余额不能为负数")
+        @Max(value = 9007199254740991L, message = "期初余额超出支持范围")
+        private Long initialBalanceCents = 0L;
     }
 
     @Data

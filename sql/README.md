@@ -61,4 +61,12 @@ V3.1 是已执行的家庭及原账目建表历史，原文保持不可变。202
 
 原 V3.1～V3.3 内容未修改。本机配置对应的 PostgreSQL 已从 3.3 升级至 3.6，Flyway 校验 19 份迁移通过。迁移前备份保存在 `F:\公司项目\数据库备份\base-mybatis-plus-service\2026-10-23_162935_礼账迁移前`。加入前旧单人家庭复用 ledger_family.hidden_owner 作为本人只读归属，不需要改写迁移。分类默认项在家庭首次读取时初始化，不插入演示账目。完整验证见[交付报告](../docs/礼账开发交付与验收报告.md)。
 
+2026-10-27 新增 [V3_11__loan_money_project_and_saving_link.sql](1.0.2/V3_11__loan_money_project_and_saving_link.sql)：借贷保存资金账户，历史借贷回填所属家庭现金；家庭收支新增借贷关联与存款增加/冲减标记，不为历史借贷补造收支。新借出和收款在业务事务内生成存款统计记录，账户只按借贷流水调整一次。本次仅完成隔离测试，未在真实 PostgreSQL 执行该迁移。
+
+2026-10-27 新增 [V3_12__savings_total_and_money_opening_balance.sql](1.0.2/V3_12__savings_total_and_money_opening_balance.sql)：账户增加整数分期初余额；历史非现金收入统一归入现金，并补一笔等额现金转回原账户的调拨，保留各账户已有余额。资金汇总新增总存款 `savingsCents = heldCents - cashCents + lentCents - debtCents`，原 `totalCents` 继续表示净资产。新收入只允许现金，借贷辅助记录不计入普通家庭存款合计。本次仅通过隔离迁移和 HTTP 测试，未执行真实 PostgreSQL 迁移；部署时需包含此脚本。
+
+2026-10-27 新增 [V3_13__money_timeline.sql](1.0.2/V3_13__money_timeline.sql)：资金操作日志保存每次操作后的净资产、总存款、非现金账户余额合计；与账户期初余额、转账、家庭收支增改删及借贷在同一家庭锁和事务内写入。历史记录不回填推算快照。`GET /ledger/money/timeline` 只读当前家庭日志，使用 `beforeId` 倒序游标分页，每页20条；修改和删除追加日志，保留先前快照。隔离 H2 HTTP 与迁移回归41项通过；未部署、未连接真实 PostgreSQL 执行迁移。
+
+资金时间轴支持按实际操作时间（北京时间）分月：`GET /ledger/money/timeline/months?keyword=...` 返回倒序月份及各月真实匹配笔数；`GET /ledger/money/timeline?month=2026-10&keyword=...&beforeId=...` 查询月内日志并沿用每页20条的游标分页。不传 `month` 时保留原全量时间轴接口行为。两个接口都只搜索当前家庭，`keyword` 对分类/亲友标题、备注和账户流向进行文字包含匹配；数字另按元精确匹配本笔操作金额（如 `4000`、`4000.00`、`4,000.00`），不匹配三项余额快照。本次折叠与搜索无需新增数据库迁移；隔离 H2 关联回归45项通过，未部署或连接真实 PostgreSQL。
+
 [返回项目说明](../README.md)

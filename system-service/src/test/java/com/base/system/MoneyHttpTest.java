@@ -68,7 +68,8 @@ class MoneyHttpTest {
         assertThat(post("/ledger/money/project/delete", Map.of("id", bank), other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         long salary = category(ok(get("/ledger/data", token)), "income");
         ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", salary,
-                "projectId", bank, "date", "2026-10-01", "amountCents", 10000000), token));
+                "date", "2026-10-01", "amountCents", 10000000), token));
+        ok(post("/ledger/money/transfer", Map.of("toProjectId", bank, "amountCents", 10000000), token));
         JsonNode renamed = ok(post("/ledger/money/project/update", Map.of("id", bank, "type", "bank", "name", "农行工资卡"), token));
         assertThat(project(renamed, "bank").path("balanceCents").asLong()).isEqualTo(10000000);
         assertThat(post("/ledger/money/project/delete", Map.of("id", bank), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -218,7 +219,7 @@ class MoneyHttpTest {
     }
 
     @Test
-    void existingProjectsTransferBothWaysAndIncomeCanGoDirectlyToAProject() {
+    void existingProjectsTransferBothWaysButIncomeMustEnterCash() {
         String token = account();
         JsonNode data = ok(get("/ledger/data", token));
         long salary = category(data, "income");
@@ -241,10 +242,13 @@ class MoneyHttpTest {
         ok(post("/ledger/money/transfer", Map.of("fromProjectId", stock, "toProjectId", bank, "amountCents", 100), token));
         ok(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "amountCents", 200), token));
         assertMoney(token, 500, 1000, 0, 0, 1000);
+        assertThat(post("/ledger/household/month/save", Map.of("month", "2026-11", "items", java.util.List.of(
+                Map.of("categoryId", salary, "type", "income", "amountCents", 100, "projectId", bank))), token)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         JsonNode month = ok(post("/ledger/household/month/save", Map.of("month", "2026-11", "items", java.util.List.of(
-                Map.of("categoryId", salary, "type", "income", "amountCents", 100, "projectId", bank))), token));
-        assertThat(month.path("items").get(0).path("projectId").asLong()).isEqualTo(bank);
-        assertMoney(token, 500, 1100, 0, 0, 1100);
+                Map.of("categoryId", salary, "type", "income", "amountCents", 100))), token));
+        assertThat(month.path("items").get(0).path("projectId").asLong()).isEqualTo(project(unchanged, "cash").path("id").asLong());
+        assertMoney(token, 600, 1100, 0, 0, 1100);
         assertThat(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "toProjectId", bank, "amountCents", 1), token)
                 .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(post("/ledger/money/transfer", Map.of("amountCents", 0), token).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -255,6 +259,81 @@ class MoneyHttpTest {
                 Map.of("categoryId", category(otherData, "income"), "type", "income", "amountCents", 100, "projectId", bank))), other)
                 .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertMoney(other, 0, 0, 0, 0, 0);
+    }
+
+    @Test
+    void savingsSummaryExcludesCashAndIncomeAlwaysUsesCash() {
+        String token = account();
+        JsonNode data = ok(get("/ledger/data", token));
+        long salary = category(data, "income");
+        JsonNode created = ok(post("/ledger/money/project/create", Map.of(
+                "type", "bank", "name", "已有存款", "initialBalanceCents", 40000000), token));
+        long bank = project(created, "bank").path("id").asLong();
+        assertThat(created.path("savingsCents").asLong()).isEqualTo(40000000);
+        assertThat(post("/ledger/household/save", Map.of("type", "income", "categoryId", salary,
+                "projectId", bank, "date", "2026-10-01", "amountCents", 2000000), token)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode income = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", salary,
+                "date", "2026-10-01", "amountCents", 2000000), token));
+        assertMoney(token, 2000000, 42000000, 0, 0, 42000000);
+        assertThat(ok(get("/ledger/money", token)).path("savingsCents").asLong()).isEqualTo(40000000);
+        assertThat(post("/ledger/household/update", Map.of("id", income.path("id").asLong(), "type", "income",
+                "categoryId", salary, "projectId", bank, "date", "2026-10-01", "amountCents", 2000000), token)
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", category(data, "expense"),
+                "date", "2026-10-01", "amountCents", 1500000), token));
+        assertThat(ok(get("/ledger/money", token)).path("savingsCents").asLong()).isEqualTo(40000000);
+        ok(post("/ledger/household/save", Map.of("type", "saving", "categoryId", category(data, "saving"),
+                "projectId", bank, "date", "2026-10-01", "amountCents", 500000), token));
+        assertMoney(token, 0, 40500000, 0, 0, 40500000);
+        assertThat(ok(get("/ledger/money", token)).path("savingsCents").asLong()).isEqualTo(40500000);
+        ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", category(data, "expense"),
+                "projectId", bank, "date", "2026-10-01", "amountCents", 100000), token));
+        assertMoney(token, 0, 40400000, 0, 0, 40400000);
+    }
+
+    @Test
+    void openingBalanceIsValidatedPreservedOnEditAndCannotBeDeletedAsAnEmptyAccount() {
+        String token = account();
+        for (Object invalid : java.util.List.of(-1, 1.5, 9007199254740992L)) {
+            assertThat(post("/ledger/money/project/create", Map.of("type", "bank", "name", "无效余额",
+                    "initialBalanceCents", invalid), token).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        var nullBalance = new java.util.HashMap<String, Object>(Map.of("type", "bank", "name", "空余额"));
+        nullBalance.put("initialBalanceCents", null);
+        assertThat(post("/ledger/money/project/create", nullBalance, token).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        long bank = project(ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "期初账户",
+                "initialBalanceCents", 12345), token)), "bank").path("id").asLong();
+        JsonNode edited = ok(post("/ledger/money/project/update", Map.of("id", bank, "type", "bank", "name", "修改资料",
+                "initialBalanceCents", 99999), token));
+        assertThat(project(edited, "bank").path("balanceCents").asLong()).isEqualTo(12345);
+        assertThat(post("/ledger/money/project/delete", Map.of("id", bank), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertMoney(token, 0, 12345, 0, 0, 12345);
+    }
+
+    @Test
+    void savingsIncludesEveryNonCashAccountAndOutstandingLoansExactlyOnce() {
+        String token = account();
+        long bank = project(ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "银行卡",
+                "initialBalanceCents", 10000), token)), "bank").path("id").asLong();
+        ok(post("/ledger/money/project/create", Map.of("type", "stock", "name", "股票", "initialBalanceCents", 20000), token));
+        ok(post("/ledger/money/project/create", Map.of("type", "other", "name", "其他", "initialBalanceCents", 30000), token));
+        assertMoney(token, 0, 60000, 0, 0, 60000);
+        JsonNode lent = ok(post("/ledger/loan/create", Map.of("direction", "lend", "name", "张三", "projectId", bank,
+                "date", "2026-10-01", "amountCents", 2000), token));
+        assertMoney(token, 0, 58000, 2000, 0, 60000);
+        long friend = lent.path("record").path("friendId").asLong();
+        JsonNode borrowed = ok(post("/ledger/loan/create", Map.of("direction", "borrow", "name", "李四",
+                "date", "2026-10-01", "amountCents", 3000), token));
+        assertMoney(token, 3000, 61000, 2000, 3000, 60000);
+        assertThat(ok(get("/ledger/money", token)).path("savingsCents").asLong()).isEqualTo(57000);
+        ok(post("/ledger/loan/create", Map.of("direction", "receive", "name", "张三", "friendId", friend,
+                "date", "2026-10-01", "amountCents", 1000), token));
+        assertMoney(token, 4000, 62000, 1000, 3000, 60000);
+        assertThat(ok(get("/ledger/money", token)).path("savingsCents").asLong()).isEqualTo(56000);
+        ok(post("/ledger/loan/create", Map.of("direction", "pay", "name", "李四",
+                "friendId", borrowed.path("record").path("friendId").asLong(), "date", "2026-10-01", "amountCents", 1000), token));
+        assertMoney(token, 3000, 61000, 1000, 2000, 60000);
     }
 
     @Test
@@ -411,6 +490,7 @@ class MoneyHttpTest {
         assertThat(value.path("lentCents").asLong()).isEqualTo(lent);
         assertThat(value.path("debtCents").asLong()).isEqualTo(debt);
         assertThat(value.path("totalCents").asLong()).isEqualTo(total);
+        assertThat(value.path("savingsCents").asLong()).isEqualTo(held - cash + lent - debt);
         assertThat(value.path("projects").get(0).path("type").asText()).isEqualTo("cash");
         assertThat(value.path("projects").get(0).path("balanceCents").asLong()).isEqualTo(cash);
         long projectTotal = 0;

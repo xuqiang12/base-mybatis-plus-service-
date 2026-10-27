@@ -20,6 +20,8 @@ public class HouseholdItemEntity {
     private Long categoryId;
     private Long projectId;
     private Boolean savingTransfer;
+    private Long loanId;
+    private String savingEffect = "add";
     private String type;
     private Long amountCents;
     private String note;

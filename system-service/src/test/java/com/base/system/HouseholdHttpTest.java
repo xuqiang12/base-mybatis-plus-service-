@@ -30,6 +30,115 @@ class HouseholdHttpTest {
     @Autowired private JdbcTemplate jdbc;
 
     @Test
+    void recordMonthCannotBeChangedByUpdate() {
+        String token = account();
+        long income = findCategory(ok(get("/ledger/data", token)).path("householdCategories"), "income", "工资");
+        JsonNode salary = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 80000, "date", "2026-10-01"), token));
+        var rejected = post("/ledger/household/update", Map.of("id", salary.path("id").asLong(), "type", "income",
+                "categoryId", income, "amountCents", 100000, "date", "2026-09-01"), token);
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(rejected.getBody().path("message").asText()).contains("月份不可修改");
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords").get(0)).isEqualTo(salary);
+        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isEqualTo(80000);
+    }
+
+    @Test
+    void editingIncomeUsesOnlyTheDifferenceAndInsufficientReductionRollsBack() {
+        String token = account();
+        JsonNode data = ok(get("/ledger/data", token));
+        long income = findCategory(data.path("householdCategories"), "income", "工资");
+        long expense = findCategory(data.path("householdCategories"), "expense", "餐饮");
+        JsonNode accounts = ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "已有存款",
+                "initialBalanceCents", 20000), token));
+        long cash = accounts.path("projects").get(0).path("id").asLong();
+        long bank = accounts.path("projects").get(1).path("id").asLong();
+        long id = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 80000, "date", "2026-10-01"), token)).path("id").asLong();
+        ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
+                "amountCents", 80000, "date", "2026-10-01"), token));
+        ok(post("/ledger/household/update", Map.of("id", id, "type", "income", "categoryId", income,
+                "amountCents", 100000, "date", "2026-10-01"), token));
+        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isEqualTo(20000);
+        ok(post("/ledger/household/update", Map.of("id", id, "type", "income", "categoryId", income,
+                "amountCents", 80000, "date", "2026-10-01"), token));
+        var rejected = post("/ledger/household/update", Map.of("id", id, "type", "income", "categoryId", income,
+                "amountCents", 60000, "date", "2026-10-01"), token);
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(rejected.getBody().path("data").path("shortfallCents").asLong()).isEqualTo(20000);
+        assertThat(jdbc.queryForObject("SELECT amount_cents FROM relations.ledger_household_item WHERE id=?", Long.class, id))
+                .isEqualTo(80000);
+        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isZero();
+        ok(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "toProjectId", cash, "amountCents", 20000), token));
+        ok(post("/ledger/household/update", Map.of("id", id, "type", "income", "categoryId", income,
+                "amountCents", 60000, "date", "2026-10-01"), token));
+        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isZero();
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords")).hasSize(2);
+    }
+
+    @Test
+    void deletingSpentIncomeReportsCashShortfallAndCanRetryAfterTransfer() {
+        String token = account();
+        JsonNode data = ok(get("/ledger/data", token));
+        long income = findCategory(data.path("householdCategories"), "income", "工资");
+        long expense = findCategory(data.path("householdCategories"), "expense", "餐饮");
+        JsonNode accounts = ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "已有存款",
+                "initialBalanceCents", 2000000), token));
+        long cash = accounts.path("projects").get(0).path("id").asLong();
+        long bank = accounts.path("projects").get(1).path("id").asLong();
+        JsonNode salary = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 2000000, "date", "2026-10-01"), token));
+        ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
+                "amountCents", 2000000, "date", "2026-10-01"), token));
+        var rejected = post("/ledger/household/delete", Map.of("id", salary.path("id").asLong()), token);
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode problem = rejected.getBody().path("data");
+        assertThat(problem.path("reason").asText()).isEqualTo("INSUFFICIENT_BALANCE");
+        assertThat(problem.path("projectId").asLong()).isEqualTo(cash);
+        assertThat(problem.path("shortfallCents").asLong()).isEqualTo(2000000);
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords")).hasSize(2);
+        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isZero();
+        ok(post("/ledger/money/transfer", Map.of("fromProjectId", bank, "toProjectId", cash, "amountCents", 2000000), token));
+        ok(post("/ledger/household/delete", Map.of("id", salary.path("id").asLong()), token));
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords")).hasSize(1);
+        assertThat(ok(get("/ledger/money", token)).path("heldCents").asLong()).isZero();
+    }
+
+    @Test
+    void incomeExpenseConversionUpdatesSameRecordAndRollsBackOnAccountShortfall() {
+        String token = account();
+        JsonNode data = ok(get("/ledger/data", token));
+        long income = findCategory(data.path("householdCategories"), "income", "工资");
+        long expense = findCategory(data.path("householdCategories"), "expense", "餐饮");
+        JsonNode accounts = ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "已有存款",
+                "initialBalanceCents", 2000000), token));
+        long cash = accounts.path("projects").get(0).path("id").asLong();
+        long bank = accounts.path("projects").get(1).path("id").asLong();
+        JsonNode salary = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 2000000, "date", "2026-10-01"), token));
+        long id = salary.path("id").asLong();
+        var rejected = post("/ledger/household/update", Map.of("id", id, "type", "expense", "categoryId", expense,
+                "projectId", bank, "amountCents", 3000000, "date", "2026-10-01", "note", "误记修正"), token);
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(rejected.getBody().path("data").path("projectId").asLong()).isEqualTo(bank);
+        assertThat(rejected.getBody().path("data").path("shortfallCents").asLong()).isEqualTo(1000000);
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords").get(0)).isEqualTo(salary);
+        JsonNode changed = ok(post("/ledger/household/update", Map.of("id", id, "type", "expense", "categoryId", expense,
+                "projectId", bank, "amountCents", 500000, "date", "2026-10-01", "note", "误记修正"), token));
+        assertThat(changed.path("id").asLong()).isEqualTo(id);
+        assertThat(changed.path("type").asText()).isEqualTo("expense");
+        JsonNode money = ok(get("/ledger/money", token));
+        assertThat(money.path("cashCents").asLong()).isZero();
+        assertThat(money.path("heldCents").asLong()).isEqualTo(1500000);
+        JsonNode restored = ok(post("/ledger/household/update", Map.of("id", id, "type", "income", "categoryId", income,
+                "projectId", cash, "amountCents", 1000000, "date", "2026-10-01", "note", "恢复收入"), token));
+        assertThat(restored.path("id").asLong()).isEqualTo(id);
+        assertThat(restored.path("projectId").asLong()).isEqualTo(cash);
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords")).hasSize(1);
+        assertThat(ok(get("/ledger/money", token)).path("heldCents").asLong()).isEqualTo(3000000);
+    }
+
+    @Test
     void repeatedSalaryEntriesAppendAndFailedBatchKeepsBothOriginals() {
         String token = account();
         JsonNode data = ok(get("/ledger/data", token));
@@ -38,16 +147,17 @@ class HouseholdHttpTest {
         JsonNode mine = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
                 "amountCents", 1119000, "date", "2026-10-01", "note", "我的工资"), token));
         JsonNode split = ok(post("/ledger/money/transfer", Map.of("type", "bank", "name", "农业银行", "amountCents", 10000), token));
-        long bank = split.path("projects").get(1).path("id").asLong();
+        long cash = split.path("projects").get(0).path("id").asLong();
         JsonNode month = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
-                Map.of("categoryId", income, "type", "income", "amountCents", 800000, "projectId", bank, "note", "对象的工资"))), token));
+                Map.of("categoryId", income, "type", "income", "amountCents", 800000, "projectId", cash, "note", "对象的工资"))), token));
         assertThat(month.path("items")).hasSize(2);
         assertThat(month.path("items").findValues("id")).doesNotHaveDuplicates();
         assertThat(month.path("items").findValuesAsText("note")).containsExactlyInAnyOrder("我的工资", "对象的工资");
         JsonNode money = ok(get("/ledger/money", token));
         assertThat(money.path("heldCents").asLong()).isEqualTo(1919000);
-        assertThat(money.path("cashCents").asLong()).isEqualTo(1109000);
-        assertThat(money.path("projects").get(1).path("balanceCents").asLong()).isEqualTo(810000);
+        assertThat(money.path("cashCents").asLong()).isEqualTo(1909000);
+        assertThat(money.path("projects").get(1).path("balanceCents").asLong()).isEqualTo(10000);
+        assertThat(money.path("savingsCents").asLong()).isEqualTo(10000);
         assertThat(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
                 Map.of("categoryId", income, "type", "income", "amountCents", 1000),
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 9999999))), token)
@@ -60,7 +170,7 @@ class HouseholdHttpTest {
                 "amountCents", 1000, "date", "2026-10-01", "note", "补发工资"), token));
         assertThat(next.path("id")).isNotEqualTo(mine.path("id"));
         assertThat(ok(get("/ledger/household/month?month=2026-10", token)).path("items")).hasSize(3);
-        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isEqualTo(1110000);
+        assertThat(ok(get("/ledger/money", token)).path("cashCents").asLong()).isEqualTo(1910000);
     }
 
     @Test

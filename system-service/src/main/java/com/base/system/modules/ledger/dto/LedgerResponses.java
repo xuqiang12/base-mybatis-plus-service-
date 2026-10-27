@@ -37,6 +37,7 @@ public final class LedgerResponses {
 
     @Data
     public static class Loan {
+        private Long projectId;
         private Long id;
         private String direction;
         private Long friendId;
@@ -61,6 +62,8 @@ public final class LedgerResponses {
 
     @Data
     public static class Household {
+        private Long loanId;
+        private String savingEffect;
         private Long projectId;
         private Long id;
         private String type;
@@ -81,6 +84,7 @@ public final class LedgerResponses {
     @Data
     public static class CreatedLoan {
         private Loan record;
+        private Household householdRecord;
         private com.base.system.modules.friend.dto.FriendResponse friend;
     }
 
@@ -111,12 +115,40 @@ public final class LedgerResponses {
     }
 
     @Data
+    public static class MoneyLog {
+        private Long id;
+        private String type;
+        private String action;
+        private long amountCents;
+        private String title;
+        private String note;
+        private String flow;
+        private long totalCents;
+        private long savingsCents;
+        private long accountCents;
+        private Instant createdAt;
+    }
+
+    @Data
+    public static class MoneyMonth {
+        private String month;
+        private long count;
+    }
+
+    @Data
+    public static class MoneyTimeline {
+        private List<MoneyLog> items;
+        private Long nextCursor;
+    }
+
+    @Data
     public static class MoneySummary {
         private long cashCents;
         private long heldCents;
         private long lentCents;
         private long debtCents;
         private long totalCents;
+        private long savingsCents;
         private List<MoneyProject> projects;
     }
 }

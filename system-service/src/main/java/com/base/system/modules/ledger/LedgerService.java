@@ -158,6 +158,7 @@ public class LedgerService {
         if (("receive".equals(request.getDirection()) || "pay".equals(request.getDirection()))
                 && request.getFriendId() == null)
             throw new BusinessException(400, "收款或归还必须选择亲友");
+        Long projectId = moneyService.resolveProject(familyId, request.getProjectId());
         FriendEntity friend = request.getFriendId() == null
                 ? createFriend(familyId, request.getName(), request.getAppellation())
                 : ownedFriend(familyId, request.getFriendId());
@@ -180,6 +181,7 @@ public class LedgerService {
         BeanUtils.copyProperties(request, entity);
         entity.setFamilyId(familyId);
         entity.setFriendId(friend.getId());
+        entity.setProjectId(projectId);
         entity.setName(request.getName().trim());
         entity.setAppellation(value(request.getAppellation()));
         entity.setNote(value(request.getNote()));
@@ -189,9 +191,14 @@ public class LedgerService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         loanMapper.insert(entity);
+        LedgerResponses.Household householdRecord = null;
+        if ("lend".equals(entity.getDirection()) || "receive".equals(entity.getDirection()))
+            householdRecord = householdService.createLoanSavingRecord(familyId, userId, entity, projectId);
         moneyService.validateBalances(familyId);
+        moneyService.recordLoan(familyId, entity);
         LedgerResponses.CreatedLoan result = new LedgerResponses.CreatedLoan();
         result.setRecord(loan(entity));
+        result.setHouseholdRecord(householdRecord);
         result.setFriend(request.getFriendId() == null ? friend(friend) : null);
         return result;
     }
@@ -257,6 +264,7 @@ public class LedgerService {
     private LedgerResponses.Loan loan(LoanEntity entity) {
         LedgerResponses.Loan result = new LedgerResponses.Loan();
         BeanUtils.copyProperties(entity, result);
+        if (result.getProjectId() == null) result.setProjectId(moneyService.resolveProject(entity.getFamilyId(), null));
         result.setCreatedBy(entity.getCreatedBy() == null ? null : String.valueOf(entity.getCreatedBy()));
         return result;
     }

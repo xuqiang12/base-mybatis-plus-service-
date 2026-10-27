@@ -19,6 +19,7 @@ public class LoanEntity {
     private String familyId;
     private String direction;
     private Long friendId;
+    private Long projectId;
     private String name;
     private String appellation;
     private Long amountCents;
