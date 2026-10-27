@@ -35,6 +35,38 @@ public class MoneyService {
     }
 
     @Transactional
+    public LedgerResponses.MoneySummary createProject(int userId, LedgerRequests.MoneyProject request) {
+        String familyId = lockFamily(userId);
+        jdbc.update("INSERT INTO relations.ledger_money_project(family_id,type,name,note) VALUES (?,?,?,?)",
+                familyId, request.getType(), request.getName().trim(), value(request.getNote()));
+        return familySummary(familyId);
+    }
+
+    @Transactional
+    public LedgerResponses.MoneySummary updateProject(int userId, LedgerRequests.MoneyProjectUpdate request) {
+        String familyId = lockFamily(userId);
+        Long id = resolveProject(familyId, request.getId());
+        if (id.equals(cashId(familyId))) throw new BusinessException(400, "现金为默认账户，不能修改");
+        jdbc.update("UPDATE relations.ledger_money_project SET type=?,name=?,note=? WHERE family_id=? AND id=?",
+                request.getType(), request.getName().trim(), value(request.getNote()), familyId, id);
+        return familySummary(familyId);
+    }
+
+    @Transactional
+    public LedgerResponses.MoneySummary deleteProject(int userId, Long projectId) {
+        String familyId = lockFamily(userId);
+        Long id = resolveProject(familyId, projectId);
+        if (id.equals(cashId(familyId))) throw new BusinessException(400, "现金为默认账户，不能删除");
+        long references = jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_item WHERE family_id=? AND project_id=?",
+                Long.class, familyId, id);
+        references += jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_transfer WHERE family_id=? AND (from_project_id=? OR to_project_id=?)",
+                Long.class, familyId, id, id);
+        if (references > 0) throw new BusinessException(409, "账户已有收支或转账记录，不能删除");
+        jdbc.update("DELETE FROM relations.ledger_money_project WHERE family_id=? AND id=?", familyId, id);
+        return familySummary(familyId);
+    }
+
+    @Transactional
     public LedgerResponses.MoneySummary transfer(int userId, LedgerRequests.MoneyTransfer request) {
         String familyId = lockFamily(userId);
         Long from = resolveProject(familyId, request.getFromProjectId());
@@ -74,6 +106,13 @@ public class MoneyService {
         return projectId;
     }
 
+    Long resolveHouseholdProject(String familyId, String type, Long projectId) {
+        Long resolved = resolveProject(familyId, projectId);
+        if ("saving".equals(type) && resolved.equals(cashId(familyId)))
+            throw new BusinessException(400, "请选择现金以外的存款去向");
+        return resolved;
+    }
+
     private Long cashId(String familyId) {
         return jdbc.queryForObject("SELECT id FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash'", Long.class, familyId);
     }
@@ -101,10 +140,13 @@ public class MoneyService {
                     return project;
                 }, familyId);
         var byId = projects.stream().collect(java.util.stream.Collectors.toMap(LedgerResponses.MoneyProject::getId, item -> item));
-        // saving 是旧版月表的独立统计项，不是第二份资金。
-        for (var item : jdbc.queryForList("SELECT project_id,type,amount_cents FROM relations.ledger_household_item WHERE family_id=? AND type IN ('income','expense')", familyId)) {
+        var cash = projects.stream().filter(project -> "cash".equals(project.getType())).findFirst().orElseThrow();
+        // 新存款在现金与目标项目之间转移，旧存款仅保留报表统计。
+        for (var item : jdbc.queryForList("SELECT project_id,type,amount_cents FROM relations.ledger_household_item WHERE family_id=? "
+                + "AND (type IN ('income','expense') OR (type='saving' AND saving_transfer=TRUE))", familyId)) {
             long amount = ((Number) item.get("amount_cents")).longValue();
             if ("expense".equals(item.get("type"))) amount = -amount;
+            if ("saving".equals(item.get("type"))) cash.setBalanceCents(cash.getBalanceCents() - amount);
             var project = byId.get(((Number) item.get("project_id")).longValue());
             project.setBalanceCents(project.getBalanceCents() + amount);
         }
@@ -126,7 +168,6 @@ public class MoneyService {
                 case "pay" -> debt -= amount;
             }
         }
-        var cash = projects.stream().filter(project -> "cash".equals(project.getType())).findFirst().orElseThrow();
         // 借贷实际收付款进入现金；现金和其他项目各自只汇总一次。
         cash.setBalanceCents(cash.getBalanceCents() - lent + debt);
         long held = projects.stream().mapToLong(LedgerResponses.MoneyProject::getBalanceCents).sum();

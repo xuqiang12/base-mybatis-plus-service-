@@ -102,8 +102,10 @@ class HouseholdHttpTest {
         long saving = findCategory(data.path("householdCategories"), "saving", "存款");
         JsonNode first = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
                 Map.of("categoryId", income, "type", "income", "amountCents", 1000000),
-                Map.of("categoryId", expense, "type", "expense", "amountCents", 600000),
-                Map.of("categoryId", saving, "type", "saving", "amountCents", 300000))), token));
+                Map.of("categoryId", expense, "type", "expense", "amountCents", 600000))), token));
+        jdbc.update("INSERT INTO relations.ledger_household_item(month_id,family_id,category_id,type,amount_cents,project_id,created_by,created_by_name) "
+                + "SELECT month_id,family_id,?,'saving',300000,project_id,created_by,created_by_name "
+                + "FROM relations.ledger_household_item WHERE category_id=?", saving, income);
         JsonNode added = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
                 Map.of("categoryId", expense, "type", "expense", "amountCents", 50000))), token));
         assertThat(added.path("id")).isEqualTo(first.path("id"));
@@ -149,7 +151,7 @@ class HouseholdHttpTest {
                 "date", "2026-10-20", "note", "工资"), token));
         ok(post("/ledger/household/save", Map.of(
                 "type", "saving", "categoryId", savingCategory, "amountCents", 100000,
-                "date", "2026-10-20", "note", "存款"), token));
+                "projectId", bankProject(token), "date", "2026-10-20", "note", "存款"), token));
 
         JsonNode after = ok(get("/ledger/data", token));
         assertThat(after.path("householdRecords")).hasSize(5);
@@ -170,6 +172,12 @@ class HouseholdHttpTest {
                 "id", firstId, "type", "expense", "categoryId", expenseCategory,
                 "amountCents", 1, "date", "2026-10-01", "note", ""), other);
         assertThat(crossFamily.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    private long bankProject(String token) {
+        String family = ok(get("/family/state", token)).path("family").path("id").asText();
+        jdbc.update("INSERT INTO relations.ledger_money_project(family_id,type,name) VALUES (?,'bank','农业银行')", family);
+        return jdbc.queryForObject("SELECT id FROM relations.ledger_money_project WHERE family_id=? AND type='bank'", Long.class, family);
     }
 
     private long findCategory(JsonNode categories, String type, String name) {

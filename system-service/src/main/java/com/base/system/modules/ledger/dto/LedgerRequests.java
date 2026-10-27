@@ -155,6 +155,25 @@ public final class LedgerRequests {
     }
 
     @Data
+    public static class MoneyProject {
+        @NotBlank(message = "请选择账户类型")
+        @Pattern(regexp = "bank|stock|other", message = "请选择有效的账户类型")
+        private String type;
+        @NotBlank(message = "账户名称不能为空")
+        @Size(max = 30, message = "账户名称最多30个字")
+        private String name;
+        @Size(max = 200, message = "备注最多200个字")
+        private String note = "";
+    }
+
+    @Data
+    public static class MoneyProjectUpdate extends MoneyProject {
+        @NotNull(message = "请选择账户")
+        @Positive(message = "账户编号无效")
+        private Long id;
+    }
+
+    @Data
     public static class MoneyTransfer {
         @Positive(message = "请选择有效的来源项目")
         private Long fromProjectId;

@@ -28,6 +28,24 @@ public class LedgerController {
         return moneyService.transfer(user.id(), request);
     }
 
+    @PostMapping("/money/project/create")
+    public LedgerResponses.MoneySummary createMoneyProject(@AuthenticationPrincipal LoginUser user,
+                                                           @Valid @RequestBody LedgerRequests.MoneyProject request) {
+        return moneyService.createProject(user.id(), request);
+    }
+
+    @PostMapping("/money/project/update")
+    public LedgerResponses.MoneySummary updateMoneyProject(@AuthenticationPrincipal LoginUser user,
+                                                           @Valid @RequestBody LedgerRequests.MoneyProjectUpdate request) {
+        return moneyService.updateProject(user.id(), request);
+    }
+
+    @PostMapping("/money/project/delete")
+    public LedgerResponses.MoneySummary deleteMoneyProject(@AuthenticationPrincipal LoginUser user,
+                                                           @Valid @RequestBody LedgerRequests.Id request) {
+        return moneyService.deleteProject(user.id(), request.getId());
+    }
+
     @GetMapping("/data")
     public LedgerResponses.DataSet data(@AuthenticationPrincipal LoginUser user) {
         return service.data(user.id());

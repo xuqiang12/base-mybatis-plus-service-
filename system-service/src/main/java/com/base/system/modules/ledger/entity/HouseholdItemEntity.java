@@ -19,6 +19,7 @@ public class HouseholdItemEntity {
     private String familyId;
     private Long categoryId;
     private Long projectId;
+    private Boolean savingTransfer;
     private String type;
     private Long amountCents;
     private String note;

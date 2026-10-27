@@ -155,7 +155,7 @@ public class HouseholdService {
             if (category == null) throw new BusinessException(404, "分类不存在");
             if (!category.getType().equals(item.getType())) throw new BusinessException(400, "收支方向与分类不一致");
             if (!category.getActive()) throw new BusinessException(409, "分类已停用");
-            Long projectId = moneyService.resolveProject(familyId, item.getProjectId());
+            Long projectId = moneyService.resolveHouseholdProject(familyId, item.getType(), item.getProjectId());
             HouseholdItemEntity record = new HouseholdItemEntity();
             record.setFamilyId(familyId);
             record.setMonthId(month.getId());
@@ -166,6 +166,7 @@ public class HouseholdService {
             record.setCreatedAt(Instant.now());
             record.setAmountCents(item.getAmountCents());
             record.setProjectId(projectId);
+            record.setSavingTransfer("saving".equals(item.getType()));
             record.setNote(value(item.getNote()));
             record.setUpdatedAt(Instant.now());
             itemMapper.insert(record);
@@ -195,7 +196,7 @@ public class HouseholdService {
     @Transactional
     public LedgerResponses.Household saveRecord(int userId, LedgerRequests.Household request) {
         String familyId = currentFamily(userId, true);
-        Long projectId = moneyService.resolveProject(familyId, request.getProjectId());
+        Long projectId = moneyService.resolveHouseholdProject(familyId, request.getType(), request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
         if (!Boolean.TRUE.equals(category.getActive())) throw new BusinessException(409, "分类已停用");
@@ -210,6 +211,7 @@ public class HouseholdService {
         existing.setCreatedAt(Instant.now());
         existing.setAmountCents(request.getAmountCents());
         existing.setProjectId(projectId);
+        existing.setSavingTransfer("saving".equals(request.getType()));
         existing.setNote(value(request.getNote()));
         existing.setUpdatedAt(Instant.now());
         itemMapper.insert(existing);
@@ -223,7 +225,12 @@ public class HouseholdService {
         HouseholdItemEntity existing = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getId, request.getId()).eq(HouseholdItemEntity::getFamilyId, familyId));
         if (existing == null) throw new BusinessException(404, "收支记录不存在");
-        Long projectId = moneyService.resolveProject(familyId, request.getProjectId());
+        // 旧存款始终只改统计，不因编辑金额或备注而重放现金转账。
+        boolean linkedSaving = "saving".equals(request.getType())
+                && (!"saving".equals(existing.getType()) || Boolean.TRUE.equals(existing.getSavingTransfer()));
+        Long projectId = linkedSaving
+                ? moneyService.resolveHouseholdProject(familyId, request.getType(), request.getProjectId())
+                : moneyService.resolveProject(familyId, request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
         HouseholdMonthEntity month = month(familyId, request.getDate(), true);
@@ -232,6 +239,7 @@ public class HouseholdService {
         existing.setType(request.getType());
         existing.setAmountCents(request.getAmountCents());
         existing.setProjectId(projectId);
+        existing.setSavingTransfer(linkedSaving);
         existing.setNote(value(request.getNote()));
         existing.setUpdatedAt(Instant.now());
         itemMapper.updateById(existing);
