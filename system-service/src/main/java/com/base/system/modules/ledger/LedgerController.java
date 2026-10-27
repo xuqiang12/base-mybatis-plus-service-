@@ -94,6 +94,18 @@ public class LedgerController {
         return service.createGift(user.id(), request);
     }
 
+    @PostMapping("/gift/update")
+    public LedgerResponses.CreatedGift updateGift(@AuthenticationPrincipal LoginUser user,
+                                                  @Valid @RequestBody LedgerRequests.GiftUpdate request) {
+        return service.updateGift(user.id(), request);
+    }
+
+    @PostMapping("/gift/delete")
+    public void deleteGift(@AuthenticationPrincipal LoginUser user,
+                           @Valid @RequestBody LedgerRequests.Id request) {
+        service.deleteGift(user.id(), request.getId());
+    }
+
     @PostMapping("/loan/create")
     public LedgerResponses.CreatedLoan createLoan(@AuthenticationPrincipal LoginUser user,
                                                   @Valid @RequestBody LedgerRequests.Loan request) {

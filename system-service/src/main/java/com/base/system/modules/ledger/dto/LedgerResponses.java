@@ -20,6 +20,7 @@ public final class LedgerResponses {
 
     @Data
     public static class Gift {
+        private Long projectId;
         private Long id;
         private String eventType;
         private String direction;
@@ -62,6 +63,7 @@ public final class LedgerResponses {
 
     @Data
     public static class Household {
+        private Long giftId;
         private Long loanId;
         private String savingEffect;
         private Long projectId;
@@ -78,6 +80,8 @@ public final class LedgerResponses {
     @Data
     public static class CreatedGift {
         private Gift record;
+        private Household householdRecord;
+        private Category householdCategory;
         private com.base.system.modules.friend.dto.FriendResponse friend;
     }
 

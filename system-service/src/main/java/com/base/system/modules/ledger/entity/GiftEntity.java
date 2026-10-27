@@ -1,6 +1,8 @@
 package com.base.system.modules.ledger.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;
@@ -24,8 +26,11 @@ public class GiftEntity {
     private String appellation;
     private Long amountCents;
     private String note;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long bookId;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long friendId;
+    private Long projectId;
     private Integer createdBy;
     private String createdByName;
     private Instant createdAt;

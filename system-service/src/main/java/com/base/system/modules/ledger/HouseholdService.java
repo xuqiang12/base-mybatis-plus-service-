@@ -7,6 +7,7 @@ import com.base.system.modules.family.mapper.FamilyMapper;
 import com.base.system.modules.ledger.dto.LedgerRequests;
 import com.base.system.modules.ledger.dto.LedgerResponses;
 import com.base.system.modules.ledger.entity.CategoryEntity;
+import com.base.system.modules.ledger.entity.GiftEntity;
 import com.base.system.modules.ledger.entity.HouseholdItemEntity;
 import com.base.system.modules.ledger.entity.HouseholdMonthEntity;
 import com.base.system.modules.ledger.entity.LoanEntity;
@@ -229,6 +230,7 @@ public class HouseholdService {
                 .eq(HouseholdItemEntity::getId, request.getId()).eq(HouseholdItemEntity::getFamilyId, familyId));
         if (existing == null) throw new BusinessException(404, "收支记录不存在");
         if (existing.getLoanId() != null) throw new BusinessException(409, "借贷关联存款记录不能单独修改");
+        if (existing.getGiftId() != null) throw new BusinessException(409, "人情关联收支不能单独修改");
         HouseholdMonthEntity month = monthMapper.selectById(existing.getMonthId());
         if (!month.getMonthValue().equals(request.getDate().toString().substring(0, 7)))
             throw new BusinessException(400, "月份不可修改，请删除后在其他月份新增");
@@ -260,6 +262,7 @@ public class HouseholdService {
                 .eq(HouseholdItemEntity::getId, id).eq(HouseholdItemEntity::getFamilyId, familyId));
         if (item == null) throw new BusinessException(404, "收支记录不存在");
         if (item.getLoanId() != null) throw new BusinessException(409, "借贷关联存款记录不能单独删除");
+        if (item.getGiftId() != null) throw new BusinessException(409, "人情关联收支不能单独删除");
         itemMapper.deleteById(id);
         if (itemMapper.selectCount(new LambdaQueryWrapper<HouseholdItemEntity>().eq(HouseholdItemEntity::getMonthId, item.getMonthId())) == 0)
             monthMapper.deleteById(item.getMonthId());
@@ -292,6 +295,65 @@ public class HouseholdService {
         item.setUpdatedAt(Instant.now());
         itemMapper.insert(item);
         return household(item, loan.getDate().withDayOfMonth(1).toString());
+    }
+
+    /** 调用方已持家庭锁；账户金额仅由此收支流水计算，人情本身不再重复加减。 */
+    GiftHousehold saveGiftRecord(String familyId, GiftEntity gift) {
+        ensureCategories(familyId);
+        boolean received = "received".equals(gift.getDirection());
+        String type = received ? "income" : "expense";
+        String name = received ? "人情收礼" : "人情送礼";
+        CategoryEntity category = categoryMapper.selectOne(new LambdaQueryWrapper<CategoryEntity>()
+                .eq(CategoryEntity::getFamilyId, familyId).eq(CategoryEntity::getType, type)
+                .eq(CategoryEntity::getName, name));
+        if (category == null) {
+            category = new CategoryEntity();
+            category.setFamilyId(familyId);
+            category.setType(type);
+            category.setName(name);
+            category.setIcon("money");
+            category.setActive(true);
+            category.setSortOrder(nextSort(familyId, type));
+            category.setCreatedAt(Instant.now());
+            category.setUpdatedAt(Instant.now());
+            categoryMapper.insert(category);
+        }
+        HouseholdMonthEntity month = month(familyId, gift.getDate(), true);
+        HouseholdItemEntity item = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
+                .eq(HouseholdItemEntity::getFamilyId, familyId).eq(HouseholdItemEntity::getGiftId, gift.getId()));
+        Long oldMonthId = item == null ? null : item.getMonthId();
+        if (item == null) {
+            item = new HouseholdItemEntity();
+            item.setCreatedBy(gift.getCreatedBy());
+            item.setCreatedByName(gift.getCreatedByName());
+            item.setCreatedAt(gift.getCreatedAt());
+        }
+        item.setFamilyId(familyId);
+        item.setMonthId(month.getId());
+        item.setCategoryId(category.getId());
+        item.setType(type);
+        item.setProjectId(gift.getProjectId());
+        item.setGiftId(gift.getId());
+        item.setRecordDate(gift.getDate());
+        item.setAmountCents(gift.getAmountCents());
+        item.setNote(gift.getNote());
+        item.setUpdatedAt(Instant.now());
+        if (item.getId() == null) itemMapper.insert(item);
+        else itemMapper.updateById(item);
+        if (oldMonthId != null && !oldMonthId.equals(month.getId())) deleteEmptyGiftMonth(oldMonthId);
+        return new GiftHousehold(category(category), household(item, gift.getDate().toString()));
+    }
+
+    void deleteGiftRecord(String familyId, long giftId) {
+        HouseholdItemEntity item = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
+                .eq(HouseholdItemEntity::getFamilyId, familyId).eq(HouseholdItemEntity::getGiftId, giftId));
+        itemMapper.deleteById(item.getId());
+        deleteEmptyGiftMonth(item.getMonthId());
+    }
+
+    private void deleteEmptyGiftMonth(long monthId) {
+        if (itemMapper.selectCount(new LambdaQueryWrapper<HouseholdItemEntity>()
+                .eq(HouseholdItemEntity::getMonthId, monthId)) == 0) monthMapper.deleteById(monthId);
     }
 
     private void ensureCategories(String familyId) {
@@ -357,10 +419,12 @@ public class HouseholdService {
 
     private LedgerResponses.Household household(HouseholdItemEntity entity, String date) {
         LedgerResponses.Household result = new LedgerResponses.Household(); BeanUtils.copyProperties(entity, result);
-        result.setDate(date); result.setCreatedBy(entity.getCreatedBy() == null ? null : String.valueOf(entity.getCreatedBy())); return result;
+        result.setDate(entity.getRecordDate() == null ? date : entity.getRecordDate().toString());
+        result.setCreatedBy(entity.getCreatedBy() == null ? null : String.valueOf(entity.getCreatedBy())); return result;
     }
 
     private String value(String text) { return text == null ? "" : text.trim(); }
 
     public record Snapshot(List<LedgerResponses.Category> categories, List<LedgerResponses.Household> records) {}
+    record GiftHousehold(LedgerResponses.Category category, LedgerResponses.Household record) {}
 }

@@ -6,6 +6,7 @@ import com.base.system.modules.family.mapper.FamilyMapper;
 import com.base.system.modules.ledger.dto.LedgerRequests;
 import com.base.system.modules.ledger.dto.LedgerResponses;
 import com.base.system.modules.ledger.entity.HouseholdItemEntity;
+import com.base.system.modules.ledger.entity.GiftEntity;
 import com.base.system.modules.ledger.entity.LoanEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -207,6 +208,15 @@ public class MoneyService {
         boolean outgoing = "lend".equals(loan.getDirection()) || "pay".equals(loan.getDirection());
         String flow = outgoing ? project + " → " + loan.getName() : loan.getName() + " → " + project;
         appendTimeline(familyId, loan.getDirection(), "create", loan.getAmountCents(), loan.getName(), loan.getNote(), flow);
+    }
+
+    void recordGift(String familyId, GiftEntity gift, String action) {
+        boolean received = "received".equals(gift.getDirection());
+        String project = projectName(familyId, gift.getProjectId());
+        String person = gift.getName() + (gift.getAppellation().isEmpty() ? "" : "（" + gift.getAppellation() + "）");
+        String title = (received ? "人情收礼 · " : "人情送礼 · ") + person;
+        String flow = received ? person + " → " + project : project + " → " + person;
+        appendTimeline(familyId, received ? "income" : "expense", action, gift.getAmountCents(), title, gift.getNote(), flow);
     }
 
     private String projectName(String familyId, Long projectId) {

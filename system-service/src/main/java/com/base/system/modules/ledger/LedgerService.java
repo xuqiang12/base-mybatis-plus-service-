@@ -123,6 +123,7 @@ public class LedgerService {
     public LedgerResponses.CreatedGift createGift(int userId, LedgerRequests.Gift request) {
         String familyId = currentFamily(userId, true);
         validateGift(request);
+        Long projectId = moneyService.resolveProject(familyId, request.getProjectId());
         FriendEntity friend = request.getFriendId() == null
                 ? createFriend(familyId, request.getName(), request.getAppellation())
                 : ownedFriend(familyId, request.getFriendId());
@@ -135,16 +136,82 @@ public class LedgerService {
         entity.setAppellation(value(request.getAppellation()));
         entity.setNote(value(request.getNote()));
         entity.setBookId("received".equals(request.getDirection()) ? request.getBookId() : null);
+        entity.setProjectId(projectId);
         entity.setCreatedBy(userId);
         entity.setCreatedByName(value(familyMapper.userName(userId)));
         Instant now = Instant.now();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         giftMapper.insert(entity);
+        HouseholdService.GiftHousehold household = householdService.saveGiftRecord(familyId, entity);
+        moneyService.validateBalances(familyId);
+        moneyService.recordGift(familyId, entity, "create");
         LedgerResponses.CreatedGift result = new LedgerResponses.CreatedGift();
         result.setRecord(gift(entity));
+        result.setHouseholdRecord(household.record());
+        result.setHouseholdCategory(household.category());
         result.setFriend(request.getFriendId() == null ? friend(friend) : null);
         return result;
+    }
+
+    /** 修改人情及其关联收支；历史未入账人情仍只修改人情统计。 */
+    @Transactional
+    public LedgerResponses.CreatedGift updateGift(int userId, LedgerRequests.GiftUpdate request) {
+        String familyId = currentFamily(userId, true);
+        GiftEntity entity = ownedGift(familyId, request.getId());
+        validateGift(request);
+        boolean linked = entity.getProjectId() != null;
+        Long projectId = linked ? moneyService.resolveProject(familyId, request.getProjectId()) : null;
+        FriendEntity friend = null;
+        if (request.getFriendId() != null) {
+            friend = ownedFriend(familyId, request.getFriendId());
+        } else if (entity.getFriendId() != null || !entity.getName().equals(request.getName().trim())
+                || !value(entity.getAppellation()).equals(value(request.getAppellation()))) {
+            friend = createFriend(familyId, request.getName(), request.getAppellation());
+        }
+        if (request.getBookId() != null) ownedBook(familyId, request.getBookId());
+        entity.setEventType(request.getEventType());
+        entity.setDirection(request.getDirection());
+        entity.setDate(request.getDate());
+        entity.setName(request.getName().trim());
+        entity.setAppellation(value(request.getAppellation()));
+        entity.setAmountCents(request.getAmountCents());
+        entity.setNote(value(request.getNote()));
+        entity.setBookId("received".equals(request.getDirection()) ? request.getBookId() : null);
+        entity.setFriendId(friend == null ? null : friend.getId());
+        entity.setProjectId(projectId);
+        entity.setUpdatedAt(Instant.now());
+        giftMapper.updateById(entity);
+        LedgerResponses.CreatedGift result = new LedgerResponses.CreatedGift();
+        if (linked) {
+            HouseholdService.GiftHousehold household = householdService.saveGiftRecord(familyId, entity);
+            moneyService.validateBalances(familyId);
+            moneyService.recordGift(familyId, entity, "update");
+            result.setHouseholdRecord(household.record());
+            result.setHouseholdCategory(household.category());
+        }
+        result.setRecord(gift(entity));
+        result.setFriend(request.getFriendId() == null && friend != null ? friend(friend) : null);
+        return result;
+    }
+
+    @Transactional
+    public void deleteGift(int userId, long id) {
+        String familyId = currentFamily(userId, true);
+        GiftEntity entity = ownedGift(familyId, id);
+        if (entity.getProjectId() != null) householdService.deleteGiftRecord(familyId, id);
+        giftMapper.deleteById(id);
+        if (entity.getProjectId() != null) {
+            moneyService.validateBalances(familyId);
+            moneyService.recordGift(familyId, entity, "delete");
+        }
+    }
+
+    private GiftEntity ownedGift(String familyId, long id) {
+        GiftEntity entity = giftMapper.selectOne(new LambdaQueryWrapper<GiftEntity>()
+                .eq(GiftEntity::getId, id).eq(GiftEntity::getFamilyId, familyId));
+        if (entity == null) throw new BusinessException(404, "人情记录不存在或已删除");
+        return entity;
     }
 
     /** 新增借贷流水，并在事务内校验收款或归还额度。 */

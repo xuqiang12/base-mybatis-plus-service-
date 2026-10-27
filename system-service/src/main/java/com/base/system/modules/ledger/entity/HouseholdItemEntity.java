@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 /** 家庭收支独立记录；同月同分类允许多笔。 */
 @Getter
@@ -21,6 +22,8 @@ public class HouseholdItemEntity {
     private Long projectId;
     private Boolean savingTransfer;
     private Long loanId;
+    private Long giftId;
+    private LocalDate recordDate;
     private String savingEffect = "add";
     private String type;
     private Long amountCents;

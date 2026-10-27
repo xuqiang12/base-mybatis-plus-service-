@@ -44,6 +44,7 @@ public final class LedgerRequests {
 
     @Data
     public static class Gift {
+        private Long projectId;
         @NotBlank(message = "请选择事件类型")
         private String eventType;
         @NotBlank(message = "请选择收送方向")
@@ -60,6 +61,13 @@ public final class LedgerRequests {
         private String note = "";
         private Long bookId;
         private Long friendId;
+    }
+
+    @Data
+    public static class GiftUpdate extends Gift {
+        @NotNull(message = "请选择人情记录")
+        @Positive(message = "记录编号无效")
+        private Long id;
     }
 
     @Data
