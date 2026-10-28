@@ -34,6 +34,7 @@ public final class LedgerResponses {
         private String createdBy;
         private String createdByName;
         private Instant createdAt;
+        private Instant updatedAt;
     }
 
     @Data
@@ -50,6 +51,7 @@ public final class LedgerResponses {
         private String createdBy;
         private String createdByName;
         private Instant createdAt;
+        private Instant updatedAt;
     }
 
     @Data
@@ -77,6 +79,7 @@ public final class LedgerResponses {
         private String createdBy;
         private String createdByName;
         private Instant createdAt;
+        private Instant updatedAt;
     }
 
     @Data

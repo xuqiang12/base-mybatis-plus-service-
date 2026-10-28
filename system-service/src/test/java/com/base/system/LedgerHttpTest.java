@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Map;
@@ -24,6 +25,67 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LedgerHttpTest {
     @Autowired
     private TestRestTemplate http;
+
+    @Autowired private JdbcTemplate jdbc;
+
+    @Test
+    void recordTimesAreReturnedOnCreationEditingAndReloading() {
+        String owner = account();
+        JsonNode categories = ok(get("/ledger/data", owner)).path("householdCategories");
+        long income = 0;
+        for (JsonNode category : categories) {
+            if ("income".equals(category.path("type").asText())) {
+                income = category.path("id").asLong();
+                break;
+            }
+        }
+        JsonNode household = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 100000, "date", "2026-10-01"), owner));
+        JsonNode gift = ok(post("/ledger/gift/create", Map.of("eventType", "birthday", "direction", "received",
+                "name", "张三", "amountCents", 100, "date", "2026-10-02"), owner)).path("record");
+        JsonNode loan = ok(post("/ledger/loan/create", Map.of("direction", "borrow", "name", "李四",
+                "amountCents", 100, "date", "2026-10-03"), owner)).path("record");
+        for (JsonNode record : java.util.List.of(household, gift, loan)) {
+            assertRecordTimes(record);
+        }
+        JsonNode initial = ok(get("/ledger/data", owner));
+        assertThat(initial.path("records").get(0).path("updatedAt")).isEqualTo(gift.path("updatedAt"));
+        assertThat(initial.path("loanRecords").get(0).path("updatedAt")).isEqualTo(loan.path("updatedAt"));
+        for (JsonNode record : initial.path("householdRecords")) assertRecordTimes(record);
+
+        var oldTime = java.sql.Timestamp.from(java.time.Instant.parse("2026-10-01T01:02:03Z"));
+        jdbc.update("UPDATE relations.ledger_gift SET created_at = ?, updated_at = ? WHERE id = ?",
+                oldTime, oldTime, gift.path("id").asLong());
+        jdbc.update("UPDATE relations.ledger_household_item SET created_at = ?, updated_at = ? WHERE id = ?",
+                oldTime, oldTime, household.path("id").asLong());
+        JsonNode changedGift = ok(post("/ledger/gift/update", Map.of("id", gift.path("id").asLong(),
+                "eventType", "birthday", "direction", "received", "name", "张三", "amountCents", 200,
+                "friendId", gift.path("friendId").asLong(), "date", "2026-10-02"), owner)).path("record");
+        JsonNode changedHousehold = ok(post("/ledger/household/update", Map.of("id", household.path("id").asLong(),
+                "type", "income", "categoryId", income, "amountCents", 100000,
+                "date", "2026-10-01", "note", "调整备注"), owner));
+        for (JsonNode record : java.util.List.of(changedGift, changedHousehold)) {
+            assertRecordTimes(record);
+            assertThat(record.path("createdAt").asText()).isEqualTo("2026-10-01 09:02:03");
+            assertThat(record.path("updatedAt").asText()).isGreaterThan(record.path("createdAt").asText());
+        }
+        JsonNode reloaded = ok(get("/ledger/data", owner));
+        assertThat(reloaded.path("records").get(0).path("updatedAt")).isEqualTo(changedGift.path("updatedAt"));
+        for (JsonNode record : reloaded.path("householdRecords")) {
+            if (record.path("id").asLong() == household.path("id").asLong()) {
+                assertThat(record.path("updatedAt")).isEqualTo(changedHousehold.path("updatedAt"));
+                assertThat(record.path("createdAt")).isEqualTo(changedHousehold.path("createdAt"));
+            }
+        }
+    }
+
+    private void assertRecordTimes(JsonNode record) {
+        var format = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        assertThat(record.path("createdAt").asText()).isNotBlank();
+        assertThat(record.path("updatedAt").asText()).isNotBlank();
+        java.time.LocalDateTime.parse(record.path("createdAt").asText(), format);
+        java.time.LocalDateTime.parse(record.path("updatedAt").asText(), format);
+    }
 
     @Test
     void bookAndGiftUseFamilyScopeAndKeepGiftAfterBookDelete() {
