@@ -180,10 +180,21 @@ public final class LedgerRequests {
     }
 
     @Data
-    public static class MoneyProjectUpdate extends MoneyProject {
+    public static class MoneyProjectUpdate {
         @NotNull(message = "请选择账户")
         @Positive(message = "账户编号无效")
         private Long id;
+        @NotBlank(message = "请选择账户类型")
+        @Pattern(regexp = "bank|stock|other", message = "请选择有效的账户类型")
+        private String type;
+        @NotBlank(message = "账户名称不能为空")
+        @Size(max = 30, message = "账户名称最多30个字")
+        private String name;
+        @Size(max = 200, message = "备注最多200个字")
+        private String note = "";
+        @Min(value = 0, message = "当前余额不能为负数")
+        @Max(value = 9007199254740991L, message = "当前余额超出支持范围")
+        private Long targetBalanceCents;
     }
 
     @Data

@@ -36,6 +36,7 @@ class GiftMoneyHttpTest {
         assertThat(received.path("record").path("projectId").asLong()).isEqualTo(bank);
         assertThat(received.path("householdRecord").path("giftId").asLong()).isEqualTo(giftId);
         assertThat(received.path("householdRecord").path("projectId").asLong()).isEqualTo(bank);
+        assertThat(received.path("householdRecord").path("projectType").asText()).isEqualTo("bank");
         assertThat(received.path("householdRecord").path("type").asText()).isEqualTo("income");
         assertThat(received.path("householdRecord").path("date").asText()).isEqualTo("2026-09-23");
         assertThat(received.path("householdCategory").path("name").asText()).isEqualTo("人情收礼");
@@ -47,6 +48,7 @@ class GiftMoneyHttpTest {
         assertBalances(token, 0, 30000);
         JsonNode month = ok(get("/ledger/household/month?month=2026-09", token));
         assertThat(month.path("items")).hasSize(2);
+        assertThat(month.path("items").findValuesAsText("projectType")).containsExactly("bank", "bank");
         assertThat(month.path("items").findValuesAsText("date")).containsOnly("2026-09-23");
         assertThat(ok(get("/ledger/data", token)).path("householdRecords")).hasSize(2);
         assertThat(ok(get("/ledger/money/timeline", token)).path("items")).hasSize(2);
@@ -59,6 +61,7 @@ class GiftMoneyHttpTest {
         assertThat(data.path("householdCategories").findValuesAsText("name").stream()
                 .filter("人情收礼"::equals).count()).isEqualTo(1);
         assertThat(data.path("householdRecords")).hasSize(3);
+        assertThat(data.path("householdRecords").findValuesAsText("projectType")).containsOnly("bank").hasSize(3);
         assertBalances(token, 0, 30100);
     }
 
@@ -75,6 +78,7 @@ class GiftMoneyHttpTest {
         JsonNode data = ok(get("/ledger/data", token));
         assertThat(data.path("records")).hasSize(2);
         assertThat(data.path("householdRecords")).hasSize(1);
+        assertThat(data.path("householdRecords").get(0).path("projectType").asText()).isEqualTo("cash");
         assertThat(ok(get("/ledger/household/month?month=2025-01", token)).path("items")).isEmpty();
         assertBalances(token, 1000, 1000);
     }
@@ -139,6 +143,7 @@ class GiftMoneyHttpTest {
         assertThat(updated.path("record").path("createdBy")).isEqualTo(created.path("record").path("createdBy"));
         assertThat(updated.path("householdRecord").path("id")).isEqualTo(created.path("householdRecord").path("id"));
         assertThat(updated.path("householdRecord").path("date").asText()).isEqualTo("2026-10-24");
+        assertThat(updated.path("householdRecord").path("projectType").asText()).isEqualTo("cash");
         assertThat(updated.path("householdCategory").path("name").asText()).isEqualTo("人情送礼");
         assertThat(ok(get("/ledger/household/month?month=2026-10", token)).path("items")).hasSize(1);
         assertThat(ok(get("/ledger/household/month?month=2026-09", token)).path("items")).hasSize(1);

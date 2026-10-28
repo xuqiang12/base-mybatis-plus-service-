@@ -54,8 +54,20 @@ public class MoneyService {
         String familyId = lockFamily(userId);
         Long id = resolveProject(familyId, request.getId());
         if (id.equals(cashId(familyId))) throw new BusinessException(400, "现金为默认账户，不能修改");
+        LedgerResponses.MoneySummary before = familySummary(familyId);
+        LedgerResponses.MoneyProject project = before.getProjects().stream()
+                .filter(item -> id.equals(item.getId())).findFirst().orElseThrow();
         jdbc.update("UPDATE relations.ledger_money_project SET type=?,name=?,note=? WHERE family_id=? AND id=?",
                 request.getType(), request.getName().trim(), value(request.getNote()), familyId, id);
+        if (request.getTargetBalanceCents() != null && request.getTargetBalanceCents() != project.getBalanceCents()) {
+            long delta = request.getTargetBalanceCents() - project.getBalanceCents();
+            jdbc.update("INSERT INTO relations.ledger_money_adjustment(family_id,project_id,amount_cents,note,created_by) VALUES (?,?,?,?,?)",
+                    familyId, id, delta, value(request.getNote()), userId);
+            LedgerResponses.MoneySummary summary = validateBalances(familyId);
+            appendTimeline(familyId, "adjustment", "create", Math.abs(delta), "账户余额校准", value(request.getNote()),
+                    request.getName().trim() + "：¥" + formatCents(project.getBalanceCents()) + " → ¥" + formatCents(request.getTargetBalanceCents()));
+            return summary;
+        }
         return familySummary(familyId);
     }
 
@@ -73,7 +85,9 @@ public class MoneyService {
                 Long.class, familyId, id, id);
         references += jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_loan WHERE family_id=? AND project_id=?",
                 Long.class, familyId, id);
-        if (references > 0) throw new BusinessException(409, "账户已有收支、转账或借贷记录，不能删除");
+        references += jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_adjustment WHERE family_id=? AND project_id=?",
+                Long.class, familyId, id);
+        if (references > 0) throw new BusinessException(409, "账户已有收支、转账、借贷或余额校准记录，不能删除");
         jdbc.update("DELETE FROM relations.ledger_money_project WHERE family_id=? AND id=?", familyId, id);
         return familySummary(familyId);
     }
@@ -257,6 +271,13 @@ public class MoneyService {
         return resolved;
     }
 
+    java.util.Map<Long, String> projectTypes(String familyId) {
+        return jdbc.query("SELECT id, CASE WHEN cash_key='cash' THEN 'cash' ELSE type END AS project_type "
+                        + "FROM relations.ledger_money_project WHERE family_id=?",
+                (row, index) -> java.util.Map.entry(row.getLong("id"), row.getString("project_type")), familyId)
+                .stream().collect(java.util.stream.Collectors.toMap(java.util.Map.Entry::getKey, java.util.Map.Entry::getValue));
+    }
+
     private Long cashId(String familyId) {
         return jdbc.queryForObject("SELECT id FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash'", Long.class, familyId);
     }
@@ -303,6 +324,10 @@ public class MoneyService {
             from.setBalanceCents(from.getBalanceCents() - amount);
             to.setBalanceCents(to.getBalanceCents() + amount);
         }
+        for (var item : jdbc.queryForList("SELECT project_id,amount_cents FROM relations.ledger_money_adjustment WHERE family_id=?", familyId)) {
+            var project = byId.get(((Number) item.get("project_id")).longValue());
+            project.setBalanceCents(project.getBalanceCents() + ((Number) item.get("amount_cents")).longValue());
+        }
         long lent = 0;
         long debt = 0;
         for (var item : jdbc.queryForList("SELECT direction,amount_cents,project_id FROM relations.ledger_loan WHERE family_id=?", familyId)) {
@@ -337,4 +362,8 @@ public class MoneyService {
     }
 
     private String value(String text) { return text == null ? "" : text.trim(); }
+
+    private String formatCents(long cents) {
+        return String.format(java.util.Locale.ROOT, "%.2f", cents / 100.0);
+    }
 }

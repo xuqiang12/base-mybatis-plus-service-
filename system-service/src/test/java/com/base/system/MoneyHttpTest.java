@@ -312,6 +312,27 @@ class MoneyHttpTest {
     }
 
     @Test
+    void currentBalanceCanBeAdjustedWithoutChangingOpeningBalance() {
+        String token = account();
+        long bank = project(ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "银行卡",
+                "initialBalanceCents", 10000), token)), "bank").path("id").asLong();
+
+        JsonNode adjusted = ok(post("/ledger/money/project/update", Map.of("id", bank, "type", "bank",
+                "name", "银行卡", "note", "", "targetBalanceCents", 8000L), token));
+        assertThat(project(adjusted, "bank").path("balanceCents").asLong()).isEqualTo(8000);
+        assertThat(jdbc.queryForObject("SELECT initial_balance_cents FROM relations.ledger_money_project WHERE id=?",
+                Long.class, bank)).isEqualTo(10000);
+        assertThat(jdbc.queryForObject("SELECT amount_cents FROM relations.ledger_money_adjustment WHERE project_id=?",
+                Long.class, bank)).isEqualTo(-2000);
+        assertThat(ok(get("/ledger/money/timeline", token)).path("items").get(0).path("type").asText())
+                .isEqualTo("adjustment");
+        assertThat(post("/ledger/money/project/update", Map.of("id", bank, "type", "bank", "name", "银行卡",
+                "note", "", "targetBalanceCents", -1), token).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/ledger/money/project/delete", Map.of("id", bank), token).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
     void savingsIncludesEveryNonCashAccountAndOutstandingLoansExactlyOnce() {
         String token = account();
         long bank = project(ok(post("/ledger/money/project/create", Map.of("type", "bank", "name", "银行卡",

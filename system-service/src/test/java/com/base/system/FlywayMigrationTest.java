@@ -12,6 +12,38 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // 使用隔离数据库验证分表迁移、完整注释和重复启动，不连接本机业务数据库。
 class FlywayMigrationTest {
     @Test
+    void upgradesOriginalTimelineMigrationWithoutRepairingHistoryOrChangingLogs() {
+        var datasource = new DriverManagerDataSource(
+                "jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1", "sa", "");
+        Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
+                .locations("classpath:db/system").callbacks(new PostgresConstraintNames()).target("3.13").load().migrate();
+        var jdbc = new JdbcTemplate(datasource);
+        assertThat(jdbc.queryForObject("SELECT \"checksum\" FROM relations.flyway_schema_history WHERE \"version\"='3.13'", Integer.class))
+                .isEqualTo(-1268683353);
+        jdbc.update("INSERT INTO relations.ledger_family(id,name) VALUES ('timeline-upgrade','旧流水家庭')");
+        String insertLog = "INSERT INTO relations.ledger_money_log(family_id,type,action,amount_cents,title,total_cents,savings_cents,account_cents,created_at) "
+                + "VALUES ('timeline-upgrade',?,'create',100,'历史记录',100,0,0,CURRENT_TIMESTAMP)";
+        jdbc.update(insertLog, "income");
+        var originalLogs = jdbc.queryForList("SELECT * FROM relations.ledger_money_log ORDER BY id");
+        assertThatThrownBy(() -> jdbc.update(insertLog, "adjustment"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+
+        var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
+                .locations("classpath:db/system").load();
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT * FROM relations.ledger_money_log ORDER BY id")).isEqualTo(originalLogs);
+        jdbc.update(insertLog, "adjustment");
+        assertThatThrownBy(() -> jdbc.update(insertLog, "invalid"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("UPDATE relations.ledger_money_log SET action='invalid'"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(upgraded.migrate().migrationsExecuted).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_log", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT \"checksum\" FROM relations.flyway_schema_history WHERE \"version\"='3.13'", Integer.class))
+                .isEqualTo(-1268683353);
+    }
+
+    @Test
     void savingsUpgradeMovesIncomeToCashWithoutChangingHistoricalAccountBalances() {
         var datasource = new DriverManagerDataSource(
                 "jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1", "sa", "");
@@ -37,7 +69,7 @@ class FlywayMigrationTest {
                 + "VALUES (?,'income-upgrade',?,?,'expense',8000,?,'原记录人')", month, expense, bank, user);
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(3);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(4);
         assertThat(jdbc.queryForObject("SELECT project_id FROM relations.ledger_household_item WHERE family_id='income-upgrade' AND type='income'", Long.class)).isEqualTo(cash);
         assertThat(jdbc.queryForObject("SELECT SUM(initial_balance_cents) FROM relations.ledger_money_project WHERE family_id='income-upgrade'", Long.class)).isZero();
         long bankExpense = jdbc.queryForObject("SELECT SUM(amount_cents) FROM relations.ledger_household_item WHERE project_id=? AND type='expense'", Long.class, bank);
@@ -65,7 +97,7 @@ class FlywayMigrationTest {
                 + "VALUES ('loan-upgrade','lend','张三',10000,'2026-10-20',?,'原记录人')", user);
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(5);
         assertThat(jdbc.queryForObject("SELECT project_id FROM relations.ledger_loan WHERE family_id='loan-upgrade'", Long.class)).isEqualTo(cash);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_item", Long.class)).isZero();
         jdbc.update("INSERT INTO relations.ledger_loan(family_id,direction,name,amount_cents,date,created_by,created_by_name) "
@@ -106,7 +138,7 @@ class FlywayMigrationTest {
                 + "VALUES (?,'saving-upgrade',?,?,'saving',400000,?,'原记录人')", month, category, cash, user);
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(6);
         var record = jdbc.queryForMap("SELECT saving_transfer,amount_cents,project_id FROM relations.ledger_household_item WHERE family_id='saving-upgrade'");
         assertThat(record.get("saving_transfer")).isEqualTo(false);
         assertThat(((Number) record.get("amount_cents")).longValue()).isEqualTo(400000);
@@ -138,7 +170,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.ledger_money_transfer(family_id,from_project_id,amount_cents,created_by) VALUES ('cash-current',?,100,?)", bank, user);
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(8);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_money_project WHERE cash_key='cash'", Long.class)).isEqualTo(2);
         long cash = jdbc.queryForObject("SELECT id FROM relations.ledger_money_project WHERE family_id='cash-current' AND cash_key='cash'", Long.class);
         assertThat(jdbc.queryForObject("SELECT project_id FROM relations.ledger_household_item WHERE family_id='cash-current'", Long.class)).isEqualTo(cash);
@@ -193,10 +225,10 @@ class FlywayMigrationTest {
                 .locations("classpath:db/system").load();
         var jdbc = new JdbcTemplate(datasource);
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(26);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(27);
         assertThat(jdbc.queryForList("SELECT \"version\" FROM relations.flyway_schema_history "
                 + "WHERE \"type\"='SQL' AND \"success\"=TRUE ORDER BY \"installed_rank\"", String.class))
-                .containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2.1", "2.2", "2.3", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.10", "3.11", "3.12", "3.13", "3.14");
+                .containsExactly("1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2.1", "2.2", "2.3", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables "
                 + "WHERE table_schema='relations' AND table_name LIKE 'sys_%'", Integer.class)).isEqualTo(10);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns "
@@ -231,7 +263,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.sys_user(username,email,phone,password) VALUES ('existing','existing@example.test','13800000099','existing-hash')");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(17);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(18);
         assertThat(jdbc.queryForObject("SELECT email_verified FROM relations.sys_user WHERE username='existing'", Boolean.class)).isFalse();
         assertThat(jdbc.queryForObject("SELECT password FROM relations.sys_user WHERE username='existing'", String.class)).isEqualTo("existing-hash");
         assertThat(jdbc.queryForObject("SELECT nickname FROM relations.sys_user WHERE username='existing'", String.class)).isNull();
@@ -252,7 +284,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.sys_email_code(email,code_hash,expires_at,used) VALUES ('pending@example.test','old-digest',CURRENT_TIMESTAMP,FALSE)");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(16);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(17);
         assertThat(jdbc.queryForObject("SELECT email_verified FROM relations.sys_user WHERE username='previous-code-user'", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT password FROM relations.sys_user WHERE username='previous-code-user'", String.class)).isNull();
         assertThat(jdbc.queryForObject("SELECT used FROM relations.sys_email_code WHERE email='pending@example.test'", Boolean.class)).isTrue();
@@ -269,7 +301,7 @@ class FlywayMigrationTest {
         jdbc.update("INSERT INTO relations.sys_user(username,email,password,email_verified) VALUES ('before-nickname','before-nickname@example.test','existing-hash',TRUE)");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(15);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(16);
         var user = jdbc.queryForMap("SELECT nickname,password,email_verified FROM relations.sys_user WHERE username='before-nickname'");
         assertThat(user.get("nickname")).isNull();
         assertThat(user.get("password")).isEqualTo("existing-hash");

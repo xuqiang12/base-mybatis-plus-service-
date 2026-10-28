@@ -49,6 +49,7 @@ public class HouseholdService {
 
     // 只由已校验归属的业务读取，历史家庭不会初始化分类或执行任何写入。
     Snapshot historySnapshot(String familyId) {
+        Map<Long, String> projectTypes = moneyService.projectTypes(familyId);
         List<LedgerResponses.Category> categories = categoryMapper.selectList(new LambdaQueryWrapper<CategoryEntity>()
                 .eq(CategoryEntity::getFamilyId, familyId)
                 .orderByAsc(CategoryEntity::getSortOrder)
@@ -58,7 +59,7 @@ public class HouseholdService {
                 .collect(Collectors.toMap(HouseholdMonthEntity::getId, month -> month.getMonthValue() + "-01"));
         List<LedgerResponses.Household> records = itemMapper.selectList(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getFamilyId, familyId)
-                .orderByDesc(HouseholdItemEntity::getId)).stream().map(item -> household(item, months.get(item.getMonthId()))).toList();
+                .orderByDesc(HouseholdItemEntity::getId)).stream().map(item -> household(item, months.get(item.getMonthId()), projectTypes)).toList();
         return new Snapshot(categories, records);
     }
 
@@ -187,12 +188,13 @@ public class HouseholdService {
 
     private LedgerResponses.Month monthResponse(String familyId, LocalDate date) {
         HouseholdMonthEntity month = month(familyId, date, false);
+        Map<Long, String> projectTypes = moneyService.projectTypes(familyId);
         LedgerResponses.Month result = new LedgerResponses.Month();
         result.setId(month == null ? null : month.getId());
         result.setMonth(date.toString().substring(0, 7));
         result.setItems(month == null ? List.of() : itemMapper.selectList(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getFamilyId, familyId).eq(HouseholdItemEntity::getMonthId, month.getId()))
-                .stream().map(item -> household(item, date.toString())).toList());
+                .stream().map(item -> household(item, date.toString(), projectTypes)).toList());
         return result;
     }
 
@@ -220,7 +222,7 @@ public class HouseholdService {
         itemMapper.insert(existing);
         moneyService.validateBalances(familyId);
         moneyService.recordHousehold(familyId, existing, category.getName(), "create");
-        return household(existing, request.getDate().withDayOfMonth(1).toString());
+        return household(existing, request.getDate().withDayOfMonth(1).toString(), moneyService.projectTypes(familyId));
     }
 
     @Transactional
@@ -252,7 +254,7 @@ public class HouseholdService {
         itemMapper.updateById(existing);
         moneyService.validateBalances(familyId);
         moneyService.recordHousehold(familyId, existing, category.getName(), "update");
-        return household(existing, request.getDate().withDayOfMonth(1).toString());
+        return household(existing, request.getDate().withDayOfMonth(1).toString(), moneyService.projectTypes(familyId));
     }
 
     @Transactional
@@ -294,7 +296,7 @@ public class HouseholdService {
         item.setCreatedAt(Instant.now());
         item.setUpdatedAt(Instant.now());
         itemMapper.insert(item);
-        return household(item, loan.getDate().withDayOfMonth(1).toString());
+        return household(item, loan.getDate().withDayOfMonth(1).toString(), moneyService.projectTypes(familyId));
     }
 
     /** 调用方已持家庭锁；账户金额仅由此收支流水计算，人情本身不再重复加减。 */
@@ -341,7 +343,7 @@ public class HouseholdService {
         if (item.getId() == null) itemMapper.insert(item);
         else itemMapper.updateById(item);
         if (oldMonthId != null && !oldMonthId.equals(month.getId())) deleteEmptyGiftMonth(oldMonthId);
-        return new GiftHousehold(category(category), household(item, gift.getDate().toString()));
+        return new GiftHousehold(category(category), household(item, gift.getDate().toString(), moneyService.projectTypes(familyId)));
     }
 
     void deleteGiftRecord(String familyId, long giftId) {
@@ -417,8 +419,9 @@ public class HouseholdService {
         LedgerResponses.Category result = new LedgerResponses.Category(); BeanUtils.copyProperties(entity, result); return result;
     }
 
-    private LedgerResponses.Household household(HouseholdItemEntity entity, String date) {
+    private LedgerResponses.Household household(HouseholdItemEntity entity, String date, Map<Long, String> projectTypes) {
         LedgerResponses.Household result = new LedgerResponses.Household(); BeanUtils.copyProperties(entity, result);
+        result.setProjectType(entity.getProjectId() == null ? "cash" : projectTypes.get(entity.getProjectId()));
         result.setDate(entity.getRecordDate() == null ? date : entity.getRecordDate().toString());
         result.setCreatedBy(entity.getCreatedBy() == null ? null : String.valueOf(entity.getCreatedBy())); return result;
     }

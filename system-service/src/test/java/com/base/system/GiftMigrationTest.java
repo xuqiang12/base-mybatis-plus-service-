@@ -30,7 +30,7 @@ class GiftMigrationTest {
         var originalAccounts = jdbc.queryForList("SELECT * FROM relations.ledger_money_project ORDER BY id");
         var upgrade = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(2);
         assertThat(jdbc.queryForList("SELECT id,direction,date,name,amount_cents FROM relations.ledger_gift ORDER BY id")).isEqualTo(originalGifts);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_gift WHERE project_id IS NOT NULL", Long.class)).isZero();
         assertThat(jdbc.queryForList("SELECT * FROM relations.ledger_money_project ORDER BY id")).isEqualTo(originalAccounts);

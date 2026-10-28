@@ -67,6 +67,7 @@ public final class LedgerResponses {
         private Long loanId;
         private String savingEffect;
         private Long projectId;
+        private String projectType;
         private Long id;
         private String type;
         private Long categoryId;
