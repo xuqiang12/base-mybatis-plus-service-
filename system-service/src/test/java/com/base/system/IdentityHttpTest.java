@@ -87,6 +87,26 @@ class IdentityHttpTest {
     }
 
     @Test
+    void loginReportsUnregisteredEmailAndPhone() {
+        for (String account : List.of("unregistered@example.test", "13800000999")) {
+            var response = post("/auth/login", Map.of("account", account, "password", "test-password"), null);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(response.getBody().path("code").asInt()).isEqualTo(401);
+            assertThat(response.getBody().path("message").asText()).isEqualTo("该账号未注册，请先注册");
+        }
+    }
+
+    @Test
+    void loginReportsWrongPasswordForRegisteredEmailAndPhone() {
+        for (String account : List.of("root@example.test", "13800000000")) {
+            var response = post("/auth/login", Map.of("account", account, "password", "wrong-password"), null);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+            assertThat(response.getBody().path("code").asInt()).isEqualTo(401);
+            assertThat(response.getBody().path("message").asText()).isEqualTo("密码错误，请重新输入");
+        }
+    }
+
+    @Test
     void userPasswordChangesRejectUnsupportedCharactersAndInvalidLengths() {
         String admin = login("root@example.test", "test-admin-password");
         int userId = createUser(admin, "password-rules", "password-rules@example.test", "13800000012", List.of());

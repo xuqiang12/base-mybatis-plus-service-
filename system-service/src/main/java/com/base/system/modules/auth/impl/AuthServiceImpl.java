@@ -75,11 +75,14 @@ public class AuthServiceImpl implements AuthService {
             matchingUsers = userMapper.selectList(new LambdaQueryWrapper<UserEntity>().eq(UserEntity::getIsDeleted, false)
                     .apply("LOWER(email) = {0}", account.toLowerCase(Locale.ROOT)));
         }
-        // 使用 BCrypt 校验密码，账号不存在或密码错误时返回同一提示。
+        if (matchingUsers.isEmpty()) {
+            throw new BusinessException(401, "该账号未注册，请先注册");
+        }
+        // 使用 BCrypt 校验已注册账号的密码。
         UserEntity user = matchingUsers.size() == 1 ? matchingUsers.getFirst() : null;
         if (user == null || user.getPassword() == null
                 || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            throw new BusinessException(401, "账号或密码错误");
+            throw new BusinessException(401, "密码错误，请重新输入");
         }
 
         // 查询当前权限，并签发有有效期的 JWT。
