@@ -1,5 +1,13 @@
-<!-- 使用 Maven 默认公共仓库构建本项目，避免继承本机公司私有仓库配置。 -->
+<!-- 使用阿里云 Maven Central 镜像构建本项目，避免中央仓库限流及继承本机公司私有仓库配置。 -->
 <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+    <mirrors>
+        <mirror>
+            <id>aliyun-central</id>
+            <name>Aliyun Maven Central Mirror</name>
+            <url>https://maven.aliyun.com/repository/central</url>
+            <mirrorOf>central</mirrorOf>
+        </mirror>
+    </mirrors>
 </settings>

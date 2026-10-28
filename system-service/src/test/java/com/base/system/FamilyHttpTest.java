@@ -30,6 +30,31 @@ class FamilyHttpTest {
     @Autowired JdbcTemplate jdbc;
 
     @Test
+    void userInfoIncludesTheCurrentFamilyAndReflectsMembershipChanges() {
+        String a = account(), b = account(), originalA = family(a), originalB = family(b);
+        JsonNode profile = ok(get("/auth/userInfo", a)).path("userInfo");
+        JsonNode family = profile.path("family");
+        assertThat(family.path("id").asText()).isEqualTo(originalA);
+        assertThat(family.path("name").asText()).isEqualTo("我的家庭");
+        assertThat(family.path("members").size()).isEqualTo(1);
+        assertThat(family.path("members").get(0).path("id").asText()).isEqualTo(profile.path("id").asText());
+        assertThat(family.path("members").get(0).path("nickname").asText()).isEqualTo("测试家人");
+        assertThat(family.path("recordCount").asInt()).isZero();
+        assertThat(family.path("hasData").asBoolean()).isFalse();
+        assertThat(profile.has("password")).isFalse();
+        assertThat(family.has("hiddenOwner")).isFalse();
+
+        ok(post("/family/invitation/accept", Map.of("token", share(a)), b, originalB));
+        JsonNode shared = ok(get("/auth/userInfo", b)).path("userInfo").path("family");
+        assertThat(shared.path("id").asText()).isEqualTo(originalA);
+        assertThat(shared.path("members").size()).isEqualTo(2);
+        ok(post("/family/leave", Map.of(), b, originalA));
+        JsonNode independent = ok(get("/auth/userInfo", b)).path("userInfo").path("family");
+        assertThat(independent.path("id").asText()).isNotBlank().isNotEqualTo(originalA);
+        assertThat(independent.path("members").size()).isEqualTo(1);
+    }
+
+    @Test
     void registrationInitializesFamilyMembershipAndFriendTable() {
         String token = account();
         JsonNode state = state(token);

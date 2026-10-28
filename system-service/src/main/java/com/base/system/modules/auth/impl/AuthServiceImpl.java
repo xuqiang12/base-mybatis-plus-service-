@@ -9,6 +9,7 @@ import com.base.system.modules.auth.dto.LoginRequest;
 import com.base.system.modules.auth.dto.LoginResponse;
 import com.base.system.modules.auth.dto.UserInfoResponse;
 import com.base.system.modules.auth.dto.UserProfileResponse;
+import com.base.system.modules.family.FamilyService;
 import com.base.system.modules.menu.MenuService;
 import com.base.system.modules.user.entity.UserEntity;
 import com.base.system.modules.user.mapper.UserMapper;
@@ -49,6 +50,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private MenuService menuService;
+
+    @Autowired
+    private FamilyService familyService;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -117,6 +121,7 @@ public class AuthServiceImpl implements AuthService {
         profile.setIsSuperAdmin(user.isSuperAdmin());
         profile.setEmail(account.getEmail());
         profile.setPhone(account.getPhone());
+        profile.setFamily(familyService.state(user.id()).getFamily());
 
         // 组装用户资料、当前权限与可见菜单。
         UserInfoResponse response = new UserInfoResponse();

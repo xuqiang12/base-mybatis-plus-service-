@@ -1,5 +1,6 @@
 package com.base.system.modules.auth.dto;
 
+import com.base.system.modules.family.FamilyModels;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -30,4 +31,7 @@ public class UserProfileResponse {
 
     @Schema(description = "手机号")
     private String phone;
+
+    @Schema(description = "当前所属家庭及成员")
+    private FamilyModels.FamilyInfo family;
 }
