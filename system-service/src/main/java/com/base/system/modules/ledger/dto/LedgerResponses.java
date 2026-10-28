@@ -76,6 +76,7 @@ public final class LedgerResponses {
         private String note;
         private String createdBy;
         private String createdByName;
+        private Instant createdAt;
     }
 
     @Data

@@ -30,6 +30,34 @@ class HouseholdHttpTest {
     @Autowired private JdbcTemplate jdbc;
 
     @Test
+    void householdCreationTimeIsReturnedAndPreservedAfterEditing() {
+        String token = account();
+        long income = findCategory(ok(get("/ledger/data", token)).path("householdCategories"), "income", "工资");
+        JsonNode salary = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 80000, "date", "2026-10-01"), token));
+        String createdAt = salary.path("createdAt").asText();
+        assertThat(createdAt).isNotBlank();
+        java.time.LocalDateTime.parse(createdAt, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        jdbc.update("UPDATE relations.ledger_household_item SET created_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(java.time.Instant.parse("2026-10-01T01:02:03Z")), salary.path("id").asLong());
+        createdAt = "2026-10-01 09:02:03";
+        JsonNode changed = ok(post("/ledger/household/update", Map.of("id", salary.path("id").asLong(),
+                "type", "income", "categoryId", income, "amountCents", 100000,
+                "date", "2026-10-01", "note", "调整金额"), token));
+        assertThat(changed.path("createdAt").asText()).isEqualTo(createdAt);
+        assertThat(ok(get("/ledger/data", token)).path("householdRecords").get(0).path("createdAt").asText())
+                .isEqualTo(createdAt);
+        JsonNode month = ok(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
+                Map.of("categoryId", income, "type", "income", "amountCents", 20000))), token));
+        assertThat(month.path("items")).hasSize(2);
+        for (JsonNode item : month.path("items")) {
+            assertThat(item.path("createdAt").asText()).isNotBlank();
+            java.time.LocalDateTime.parse(item.path("createdAt").asText(),
+                    java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+    }
+
+    @Test
     void recordMonthCannotBeChangedByUpdate() {
         String token = account();
         long income = findCategory(ok(get("/ledger/data", token)).path("householdCategories"), "income", "工资");
