@@ -43,8 +43,8 @@ public class LedgerService {
     /** 返回当前家庭的账簿、人情和亲友。 */
     @Transactional
     public LedgerResponses.DataSet data(int userId) {
-        String familyId = currentFamily(userId, true);
-        return dataForFamily(familyId, householdService.snapshot(userId));
+        String familyId = currentFamily(userId, false);
+        return dataForFamily(familyId, householdService.snapshot(familyId));
     }
 
     /** 只有历史家庭的原账号可以读取；所有写接口仍只操作当前家庭。 */
@@ -68,10 +68,13 @@ public class LedgerService {
                 .eq(GiftEntity::getFamilyId, familyId)
                 .orderByDesc(GiftEntity::getDate)
                 .orderByDesc(GiftEntity::getId)).stream().map(this::gift).toList());
-        result.setLoanRecords(loanMapper.selectList(new LambdaQueryWrapper<LoanEntity>()
+        List<LoanEntity> loans = loanMapper.selectList(new LambdaQueryWrapper<LoanEntity>()
                 .eq(LoanEntity::getFamilyId, familyId)
                 .orderByDesc(LoanEntity::getDate)
-                .orderByDesc(LoanEntity::getId)).stream().map(this::loan).toList());
+                .orderByDesc(LoanEntity::getId));
+        Long defaultProjectId = loans.stream().anyMatch(item -> item.getProjectId() == null)
+                ? moneyService.resolveProject(familyId, null) : null;
+        result.setLoanRecords(loans.stream().map(item -> loan(item, defaultProjectId)).toList());
         result.setHouseholdCategories(household.categories());
         result.setHouseholdRecords(household.records());
         return result;
@@ -327,9 +330,14 @@ public class LedgerService {
     }
 
     private LedgerResponses.Loan loan(LoanEntity entity) {
+        return loan(entity, entity.getProjectId() == null
+                ? moneyService.resolveProject(entity.getFamilyId(), null) : null);
+    }
+
+    private LedgerResponses.Loan loan(LoanEntity entity, Long defaultProjectId) {
         LedgerResponses.Loan result = new LedgerResponses.Loan();
         BeanUtils.copyProperties(entity, result);
-        if (result.getProjectId() == null) result.setProjectId(moneyService.resolveProject(entity.getFamilyId(), null));
+        if (result.getProjectId() == null) result.setProjectId(defaultProjectId);
         result.setCreatedBy(entity.getCreatedBy() == null ? null : String.valueOf(entity.getCreatedBy()));
         return result;
     }

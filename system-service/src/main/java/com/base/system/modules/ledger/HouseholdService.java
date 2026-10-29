@@ -47,6 +47,20 @@ public class HouseholdService {
         return historySnapshot(familyId);
     }
 
+    /** 读取快照只接收已校验的家庭 ID，避免重复查询成员归属。 */
+    Snapshot snapshot(String familyId) {
+        long categoryCount = categoryMapper.selectCount(new LambdaQueryWrapper<CategoryEntity>()
+                .eq(CategoryEntity::getFamilyId, familyId));
+        if (categoryCount == 0) {
+            // 只有首次初始化默认分类时才锁家庭；已有分类的读取不阻塞写请求。
+            FamilyModels.Family family = familyMapper.lockFamily(familyId);
+            if (family == null || family.getHiddenOwner() != null)
+                throw new BusinessException(409, "家庭已变化，请刷新后重试");
+            ensureCategories(familyId);
+        }
+        return historySnapshot(familyId);
+    }
+
     // 只由已校验归属的业务读取，历史家庭不会初始化分类或执行任何写入。
     Snapshot historySnapshot(String familyId) {
         Map<Long, String> projectTypes = moneyService.projectTypes(familyId);
