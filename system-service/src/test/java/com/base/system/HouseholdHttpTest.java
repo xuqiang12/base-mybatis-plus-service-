@@ -303,13 +303,55 @@ class HouseholdHttpTest {
         assertThat(mismatch.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
         ResponseEntity<JsonNode> deleteUsed = post("/ledger/category/delete", Map.of("id", expenseCategory), token);
-        assertThat(deleteUsed.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        ok(deleteUsed);
+        JsonNode afterDelete = ok(get("/ledger/data", token));
+        assertThat(findCategoryNode(afterDelete.path("householdCategories"), expenseCategory).path("deleted").asBoolean()).isTrue();
+        assertThat(afterDelete.path("householdRecords")).isEqualTo(after.path("householdRecords"));
 
         String other = account();
         ResponseEntity<JsonNode> crossFamily = post("/ledger/household/update", Map.of(
                 "id", firstId, "type", "expense", "categoryId", expenseCategory,
                 "amountCents", 1, "date", "2026-10-01", "note", ""), other);
         assertThat(crossFamily.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void softDeletingCategoryPreservesHistoryAndAllowsSameNameReplacement() {
+        String token = account();
+        JsonNode data = ok(get("/ledger/data", token));
+        long income = findCategory(data.path("householdCategories"), "income", "工资");
+        long expense = findCategory(data.path("householdCategories"), "expense", "餐饮");
+        ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", income,
+                "amountCents", 100000, "date", "2026-10-01"), token));
+        JsonNode record = ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
+                "amountCents", 1000, "date", "2026-10-01"), token));
+
+        ok(post("/ledger/category/delete", Map.of("id", expense), token));
+
+        JsonNode after = ok(get("/ledger/data", token));
+        JsonNode deleted = findCategoryNode(after.path("householdCategories"), expense);
+        assertThat(deleted.path("deleted").asBoolean()).isTrue();
+        assertThat(after.path("householdRecords")).contains(record);
+        assertThat(jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM relations.ledger_category WHERE id=?",
+                Boolean.class, expense)).isTrue();
+
+        JsonNode replacement = ok(post("/ledger/category/create", Map.of("type", "expense", "name", "餐饮", "icon", "fork"), token));
+        assertThat(replacement.path("id").asLong()).isNotEqualTo(expense);
+        assertThat(post("/ledger/household/save", Map.of("type", "expense", "categoryId", expense,
+                "amountCents", 1000, "date", "2026-10-02"), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(post("/ledger/household/month/save", Map.of("month", "2026-10", "items", List.of(
+                Map.of("type", "expense", "categoryId", expense, "amountCents", 1000))), token)
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode edited = ok(post("/ledger/household/update", Map.of("id", record.path("id").asLong(),
+                "type", "expense", "categoryId", expense, "amountCents", 1200, "date", "2026-10-01", "note", "保留原分类"), token));
+        assertThat(edited.path("categoryId").asLong()).isEqualTo(expense);
+        assertThat(edited.path("amountCents").asLong()).isEqualTo(1200);
+        JsonNode newRecord = ok(post("/ledger/household/save", Map.of("type", "expense", "categoryId", replacement.path("id").asLong(),
+                "amountCents", 1000, "date", "2026-10-02"), token));
+        assertThat(post("/ledger/household/update", Map.of("id", newRecord.path("id").asLong(), "type", "expense", "categoryId", expense,
+                "amountCents", 1000, "date", "2026-10-02"), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode moved = ok(post("/ledger/category/move", Map.of("id", replacement.path("id").asLong()), token));
+        assertThat(findCategoryNode(moved, expense).path("deleted").asBoolean()).isTrue();
     }
 
     private long bankProject(String token) {
@@ -324,6 +366,13 @@ class HouseholdHttpTest {
                 return category.path("id").asLong();
         }
         throw new AssertionError("category not found: " + type + "/" + name);
+    }
+
+    private JsonNode findCategoryNode(JsonNode categories, long id) {
+        for (JsonNode category : categories) {
+            if (id == category.path("id").asLong()) return category;
+        }
+        throw new AssertionError("category not found: " + id);
     }
 
     private String account() {

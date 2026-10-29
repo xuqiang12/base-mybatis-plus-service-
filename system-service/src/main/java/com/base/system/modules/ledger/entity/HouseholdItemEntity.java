@@ -18,6 +18,7 @@ public class HouseholdItemEntity {
     private Long id;
     private Long monthId;
     private String familyId;
+    /** 普通收支必填；人情收支以 giftId 标识来源，不关联家庭分类。 */
     private Long categoryId;
     private Long projectId;
     private Boolean savingTransfer;

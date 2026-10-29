@@ -77,7 +77,10 @@ book = request('/ledger/book/create', a, {'name': '验收账簿', 'date': '2026-
 request('/ledger/book/update', a, {**book, 'name': '验收账簿改名'})
 gift = {'eventType': 'wedding', 'direction': 'received', 'date': '2026-10-01', 'name': '验收亲友',
         'appellation': '同事', 'amountCents': 10000, 'note': '', 'friendId': fid, 'bookId': book['id']}
-request('/ledger/gift/create', a, gift)
+saved_gift = request('/ledger/gift/create', a, gift)
+assert saved_gift['householdRecord']['categoryId'] is None
+assert saved_gift['householdRecord']['giftId'] == saved_gift['record']['id']
+assert 'householdCategory' not in saved_gift
 before = request('/friend/list', a)['total']
 request('/ledger/gift/create', a, {**gift, 'friendId': None, 'name': '不能留下的亲友', 'bookId': 9223372036854775806}, expected=404)
 assert request('/friend/list', a)['total'] == before
@@ -114,13 +117,19 @@ assert first['id'] == second['id'] and len(second['items']) == 3
 bad = [{**items[0], 'amountCents': 900000}, {**items[1], 'type': 'income'}]
 request('/ledger/household/month/save', a, {'month': '2026-10', 'items': bad}, expected=400)
 assert '900000' not in json.dumps(request('/ledger/household/month?month=2026-10', a))
-request('/ledger/category/delete', a, {'id': expense['id']}, expected=409)
+request('/ledger/category/delete', a, {'id': expense['id']})
+after_delete = dataset(a)
+deleted = next(item for item in after_delete['householdCategories'] if item['id'] == expense['id'])
+assert deleted['deleted'] is True
+assert any(item['categoryId'] == expense['id'] for item in after_delete['householdRecords'])
+replacement = request('/ledger/category/create', a, {'type': 'expense', 'name': expense['name'], 'icon': expense['icon']})
+assert replacement['id'] != expense['id']
 request('/ledger/household/month/save', c, {'month': '2026-10', 'items': items}, expected=404)
 extra = request('/ledger/category/create', a, {'type': 'expense', 'name': '验收分类', 'icon': 'wallet'})
 request('/ledger/category/update', a, {'id': extra['id'], 'name': '验收改名', 'icon': 'wallet', 'active': False})
 request('/ledger/category/move', a, {'id': extra['id']})
 request('/ledger/category/delete', a, {'id': extra['id']})
-mark('同月同表多分类回填、原子事务、分类维护与删除限制')
+mark('同月同表多分类回填、原子事务、分类维护、停用和软删除')
 
 old_b = family(b)
 old_book = request('/ledger/book/create', b, {'name': '验收加入前历史'})

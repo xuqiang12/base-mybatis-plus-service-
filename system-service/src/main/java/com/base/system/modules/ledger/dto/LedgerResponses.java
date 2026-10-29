@@ -61,6 +61,7 @@ public final class LedgerResponses {
         private String name;
         private String icon;
         private Boolean active;
+        private Boolean deleted;
     }
 
     @Data
@@ -86,7 +87,6 @@ public final class LedgerResponses {
     public static class CreatedGift {
         private Gift record;
         private Household householdRecord;
-        private Category householdCategory;
         private com.base.system.modules.friend.dto.FriendResponse friend;
     }
 

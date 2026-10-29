@@ -20,6 +20,7 @@ public class CategoryEntity {
     private String name;
     private String icon;
     private Boolean active;
+    private Instant deletedAt;
     private Integer sortOrder;
     private Instant createdAt;
     private Instant updatedAt;

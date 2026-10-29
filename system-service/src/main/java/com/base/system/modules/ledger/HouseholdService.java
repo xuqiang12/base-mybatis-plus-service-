@@ -92,6 +92,7 @@ public class HouseholdService {
         entity.setName(request.getName().trim());
         entity.setIcon(request.getIcon());
         entity.setActive(request.getActive());
+        if (entity.getDeletedAt() != null) throw new BusinessException(409, "分类已删除");
         entity.setUpdatedAt(Instant.now());
         categoryMapper.updateById(entity);
         return category(entity);
@@ -102,11 +103,10 @@ public class HouseholdService {
         String familyId = currentFamily(userId, true);
         CategoryEntity entity = ownedCategory(familyId, id);
         if ("saving".equals(entity.getType())) throw new BusinessException(409, "存款分类不可删除");
-        if (itemMapper.selectCount(new LambdaQueryWrapper<HouseholdItemEntity>()
-                .eq(HouseholdItemEntity::getFamilyId, familyId)
-                .eq(HouseholdItemEntity::getCategoryId, id)) > 0)
-            throw new BusinessException(409, "分类已有记录，请改为停用");
-        categoryMapper.deleteById(id);
+        if (entity.getDeletedAt() != null) throw new BusinessException(409, "分类已删除");
+        entity.setDeletedAt(Instant.now());
+        entity.setUpdatedAt(Instant.now());
+        categoryMapper.updateById(entity);
     }
 
     @Transactional
@@ -114,8 +114,10 @@ public class HouseholdService {
         String familyId = currentFamily(userId, true);
         CategoryEntity entity = ownedCategory(familyId, id);
         if ("saving".equals(entity.getType())) throw new BusinessException(409, "存款分类不可排序");
+        if (entity.getDeletedAt() != null) throw new BusinessException(409, "分类已删除");
         List<CategoryEntity> sameType = categoryMapper.selectList(new LambdaQueryWrapper<CategoryEntity>()
                 .eq(CategoryEntity::getFamilyId, familyId).eq(CategoryEntity::getType, entity.getType())
+                .isNull(CategoryEntity::getDeletedAt)
                 .orderByAsc(CategoryEntity::getSortOrder));
         int index = -1;
         for (int i = 0; i < sameType.size(); i++) {
@@ -133,7 +135,8 @@ public class HouseholdService {
             categoryMapper.updateById(previous);
         }
         return categoryMapper.selectList(new LambdaQueryWrapper<CategoryEntity>()
-                .eq(CategoryEntity::getFamilyId, familyId).orderByAsc(CategoryEntity::getSortOrder)
+                .eq(CategoryEntity::getFamilyId, familyId)
+                .orderByAsc(CategoryEntity::getSortOrder)
                 .orderByAsc(CategoryEntity::getId)).stream().map(this::category).toList();
     }
 
@@ -157,7 +160,7 @@ public class HouseholdService {
             CategoryEntity category = categories.get(item.getCategoryId());
             if (category == null) throw new BusinessException(404, "分类不存在");
             if (!category.getType().equals(item.getType())) throw new BusinessException(400, "收支方向与分类不一致");
-            if (!category.getActive()) throw new BusinessException(409, "分类已停用");
+            if (!category.getActive() || category.getDeletedAt() != null) throw new BusinessException(409, "分类不可用");
             Long projectId = moneyService.resolveHouseholdProject(familyId, item.getType(), item.getProjectId());
             HouseholdItemEntity record = new HouseholdItemEntity();
             record.setFamilyId(familyId);
@@ -204,7 +207,7 @@ public class HouseholdService {
         Long projectId = moneyService.resolveHouseholdProject(familyId, request.getType(), request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
-        if (!Boolean.TRUE.equals(category.getActive())) throw new BusinessException(409, "分类已停用");
+        if (!Boolean.TRUE.equals(category.getActive()) || category.getDeletedAt() != null) throw new BusinessException(409, "分类不可用");
         HouseholdMonthEntity month = month(familyId, request.getDate(), true);
         HouseholdItemEntity existing = new HouseholdItemEntity();
         existing.setMonthId(month.getId());
@@ -244,6 +247,9 @@ public class HouseholdService {
                 : moneyService.resolveProject(familyId, request.getProjectId());
         CategoryEntity category = ownedCategory(familyId, request.getCategoryId());
         if (!category.getType().equals(request.getType())) throw new BusinessException(400, "收支方向与分类不一致");
+        if ((category.getDeletedAt() != null || !Boolean.TRUE.equals(category.getActive()))
+                && !category.getId().equals(existing.getCategoryId()))
+            throw new BusinessException(409, "分类不可用");
         existing.setCategoryId(category.getId());
         existing.setType(request.getType());
         existing.setAmountCents(request.getAmountCents());
@@ -300,29 +306,12 @@ public class HouseholdService {
     }
 
     /** 调用方已持家庭锁；账户金额仅由此收支流水计算，人情本身不再重复加减。 */
-    GiftHousehold saveGiftRecord(String familyId, GiftEntity gift) {
-        ensureCategories(familyId);
+    LedgerResponses.Household saveGiftRecord(String familyId, GiftEntity gift) {
         boolean received = "received".equals(gift.getDirection());
         String type = received ? "income" : "expense";
-        String name = received ? "人情收礼" : "人情送礼";
-        CategoryEntity category = categoryMapper.selectOne(new LambdaQueryWrapper<CategoryEntity>()
-                .eq(CategoryEntity::getFamilyId, familyId).eq(CategoryEntity::getType, type)
-                .eq(CategoryEntity::getName, name));
-        if (category == null) {
-            category = new CategoryEntity();
-            category.setFamilyId(familyId);
-            category.setType(type);
-            category.setName(name);
-            category.setIcon("money");
-            category.setActive(true);
-            category.setSortOrder(nextSort(familyId, type));
-            category.setCreatedAt(Instant.now());
-            category.setUpdatedAt(Instant.now());
-            categoryMapper.insert(category);
-        }
-        HouseholdMonthEntity month = month(familyId, gift.getDate(), true);
         HouseholdItemEntity item = itemMapper.selectOne(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getFamilyId, familyId).eq(HouseholdItemEntity::getGiftId, gift.getId()));
+        HouseholdMonthEntity month = month(familyId, gift.getDate(), true);
         Long oldMonthId = item == null ? null : item.getMonthId();
         if (item == null) {
             item = new HouseholdItemEntity();
@@ -332,7 +321,7 @@ public class HouseholdService {
         }
         item.setFamilyId(familyId);
         item.setMonthId(month.getId());
-        item.setCategoryId(category.getId());
+        item.setCategoryId(null);
         item.setType(type);
         item.setProjectId(gift.getProjectId());
         item.setGiftId(gift.getId());
@@ -343,7 +332,7 @@ public class HouseholdService {
         if (item.getId() == null) itemMapper.insert(item);
         else itemMapper.updateById(item);
         if (oldMonthId != null && !oldMonthId.equals(month.getId())) deleteEmptyGiftMonth(oldMonthId);
-        return new GiftHousehold(category(category), household(item, gift.getDate().toString(), moneyService.projectTypes(familyId)));
+        return household(item, gift.getDate().toString(), moneyService.projectTypes(familyId));
     }
 
     void deleteGiftRecord(String familyId, long giftId) {
@@ -407,6 +396,7 @@ public class HouseholdService {
     private void duplicate(String familyId, String type, String name, Long id) {
         if (categoryMapper.selectCount(new LambdaQueryWrapper<CategoryEntity>().eq(CategoryEntity::getFamilyId, familyId)
                 .eq(CategoryEntity::getType, type).eq(CategoryEntity::getName, name.trim())
+                .isNull(CategoryEntity::getDeletedAt)
                 .ne(id != null, CategoryEntity::getId, id)) > 0) throw new BusinessException(409, "这个分类名称已经存在");
     }
 
@@ -416,7 +406,10 @@ public class HouseholdService {
     }
 
     private LedgerResponses.Category category(CategoryEntity entity) {
-        LedgerResponses.Category result = new LedgerResponses.Category(); BeanUtils.copyProperties(entity, result); return result;
+        LedgerResponses.Category result = new LedgerResponses.Category();
+        BeanUtils.copyProperties(entity, result);
+        result.setDeleted(entity.getDeletedAt() != null);
+        return result;
     }
 
     private LedgerResponses.Household household(HouseholdItemEntity entity, String date, Map<Long, String> projectTypes) {
@@ -429,5 +422,4 @@ public class HouseholdService {
     private String value(String text) { return text == null ? "" : text.trim(); }
 
     public record Snapshot(List<LedgerResponses.Category> categories, List<LedgerResponses.Household> records) {}
-    record GiftHousehold(LedgerResponses.Category category, LedgerResponses.Household record) {}
 }

@@ -39,12 +39,13 @@ class GiftMoneyHttpTest {
         assertThat(received.path("householdRecord").path("projectType").asText()).isEqualTo("bank");
         assertThat(received.path("householdRecord").path("type").asText()).isEqualTo("income");
         assertThat(received.path("householdRecord").path("date").asText()).isEqualTo("2026-09-23");
-        assertThat(received.path("householdCategory").path("name").asText()).isEqualTo("人情收礼");
+        assertThat(received.path("householdRecord").path("categoryId").isNull()).isTrue();
+        assertThat(received.has("householdCategory")).isFalse();
         assertBalances(token, 0, 50000);
 
         JsonNode sent = ok(post("/ledger/gift/create", gift("sent", "李四", 20000, bank), token));
         assertThat(sent.path("householdRecord").path("type").asText()).isEqualTo("expense");
-        assertThat(sent.path("householdCategory").path("name").asText()).isEqualTo("人情送礼");
+        assertThat(sent.path("householdRecord").path("categoryId").isNull()).isTrue();
         assertBalances(token, 0, 30000);
         JsonNode month = ok(get("/ledger/household/month?month=2026-09", token));
         assertThat(month.path("items")).hasSize(2);
@@ -58,8 +59,7 @@ class GiftMoneyHttpTest {
 
         ok(post("/ledger/gift/create", gift("received", "王五", 100, bank), token));
         JsonNode data = ok(get("/ledger/data", token));
-        assertThat(data.path("householdCategories").findValuesAsText("name").stream()
-                .filter("人情收礼"::equals).count()).isEqualTo(1);
+        assertThat(data.path("householdCategories").findValuesAsText("name")).doesNotContain("人情收礼", "人情送礼");
         assertThat(data.path("householdRecords")).hasSize(3);
         assertThat(data.path("householdRecords").findValuesAsText("projectType")).containsOnly("bank").hasSize(3);
         assertBalances(token, 0, 30100);
@@ -108,7 +108,7 @@ class GiftMoneyHttpTest {
         assertThat(id).isPositive();
         assertThat(post("/ledger/household/delete", Map.of("id", id), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(post("/ledger/household/update", Map.of("id", id, "type", "income", "categoryId",
-                created.path("householdRecord").path("categoryId").asLong(), "date", "2026-09-23",
+                ok(get("/ledger/data", token)).path("householdCategories").get(0).path("id").asLong(), "date", "2026-09-23",
                 "amountCents", 1), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         String other = account();
         assertThat(post("/ledger/gift/create", gift("received", "跨家庭", 100, cash), other).getStatusCode())
@@ -144,7 +144,7 @@ class GiftMoneyHttpTest {
         assertThat(updated.path("householdRecord").path("id")).isEqualTo(created.path("householdRecord").path("id"));
         assertThat(updated.path("householdRecord").path("date").asText()).isEqualTo("2026-10-24");
         assertThat(updated.path("householdRecord").path("projectType").asText()).isEqualTo("cash");
-        assertThat(updated.path("householdCategory").path("name").asText()).isEqualTo("人情送礼");
+        assertThat(updated.path("householdRecord").path("categoryId").isNull()).isTrue();
         assertThat(ok(get("/ledger/household/month?month=2026-10", token)).path("items")).hasSize(1);
         assertThat(ok(get("/ledger/household/month?month=2026-09", token)).path("items")).hasSize(1);
         assertBalances(token, 8000, 8000);
@@ -258,6 +258,29 @@ class GiftMoneyHttpTest {
         assertThat(post("/ledger/gift/update", fields, token).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(ok(get("/ledger/data", token))).isEqualTo(before);
         assertBalances(token, 0, 20000);
+    }
+
+    @Test
+    void giftsStayIndependentOfSameNamedHouseholdCategories() {
+        String token = account();
+        long cash = ok(get("/ledger/money", token)).path("projects").get(0).path("id").asLong();
+        long categoryId = ok(post("/ledger/category/create", Map.of("type", "income", "name", "人情收礼", "icon", "money"), token))
+                .path("id").asLong();
+        JsonNode ordinary = ok(post("/ledger/household/save", Map.of("type", "income", "categoryId", categoryId,
+                "amountCents", 500, "date", "2026-09-01"), token));
+        JsonNode original = ok(post("/ledger/gift/create", gift("received", "原礼金", 1000, cash), token));
+        assertThat(original.path("householdRecord").path("categoryId").isNull()).isTrue();
+        ok(post("/ledger/category/delete", Map.of("id", categoryId), token));
+        Map<String, Object> fields = new HashMap<>(gift("received", "原礼金", 2000, cash));
+        fields.put("id", original.path("record").path("id").asLong());
+        JsonNode edited = ok(post("/ledger/gift/update", fields, token));
+        assertThat(edited.path("householdRecord").path("categoryId").isNull()).isTrue();
+        JsonNode created = ok(post("/ledger/gift/create", gift("received", "分类删除后新增礼金", 1000, cash), token));
+        assertThat(created.path("householdRecord").path("categoryId").isNull()).isTrue();
+        JsonNode data = ok(get("/ledger/data", token));
+        assertThat(data.path("householdCategories").findValuesAsText("name").stream().filter("人情收礼"::equals).count()).isEqualTo(1);
+        assertThat(data.path("householdRecords")).contains(ordinary);
+        assertBalances(token, 3500, 3500);
     }
 
     private Map<String, Object> gift(String direction, String name, long amount, long account) {

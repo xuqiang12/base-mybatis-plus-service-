@@ -2,6 +2,8 @@
 
 日期：2026-10-16。
 
+2026-10-29 人情来源调整：当前真实服务已实现人情收支联动，人情往来作为独立大类，通过 `ledger_household_item.gift_id` 关联原人情，`category_id` 为空；普通家庭收支仍必须有分类。人情保存响应不再返回 `householdCategory`，新增、修改、删除仍同步收支和账户。V3_17 将已关联的人情收支解除旧分类关联，仅供人情使用的旧分类软删除，普通收支仍引用的分类保留；未入账的旧人情不补账。下文早期状态与草案保留历史背景，当前行为以源码及《礼账需求验收对照》为准。
+
 状态：家庭成员管理已接入 Java，包括自动建立单人家庭、成员状态、微信分享卡片邀请、加入和退出。2026-10-19 用户要求从建表开始亲自学习，V3.2 清理迁移删除旧邀请及六张预建记账表，仅保留家庭、成员及账号权限表，已执行 V3.1 原文保留。账簿、亲友、人情、借贷、分类及收支的建表和接口均留给用户实现，小程序继续使用原有 mock。历史公开/隐藏/清空、账目合并及退出复制暂不接入。下文其他业务内容仍为方案草案，表名、字段及 ID 类型需逐表重新确认，不能将旧草案当成实际表结构；家庭当前范围见《家庭共享与历史保留实施计划》。
 
 前端：`F:\公司项目\gitee\business\giftLedger\gift-ledger`。
@@ -38,7 +40,7 @@
 | 账簿 | 新增、修改、删除、收礼总额和笔数；删除后记录保留为未归属 | src/pages-sub/record/books/ |
 | 借贷 | 借出、收款、借入、归还；按亲友累计待收/待还，还款校验 | src/components/loan-record-form/ |
 | 家庭收支 | 收入、支出、存款；新增、修改、删除；月/年汇总、分类占比与分类明细 | src/pages/loans/index.vue；src/pages-sub/household/；src/pages-sub/record/house-form.vue |
-| 收支分类 | 收入/支出分类新增、改名、图标、同方向上移、停用/启用、未使用分类删除 | src/components/household-category-editor/；src/pages-sub/household/categories.vue |
+| 收支分类 | 收入/支出分类新增、改名、图标、同方向上移、停用/启用、软删除隐藏 | src/components/household-category-editor/；src/pages-sub/household/categories.vue |
 | 家庭共享 | 自动单人家庭、微信分享邀请、确认加入、退出；账目历史处理暂不接入 | src/pages-sub/family/index.vue |
 | 我的 | 家庭管理、账簿入口、亲友/账簿/记录数量、静态帮助和关于 | src/pages/mine/index.vue |
 
@@ -279,7 +281,7 @@ flowchart LR
 
 分类名 1～12 字，同一家庭、同方向新增/改名不允许重名，包含已停用分类。家庭合并可以保留两边原有同名分类，因此不能直接增加 `UNIQUE(family_id, record_type, name)`：正常维护由服务层在家庭写锁下校验，合并形成的同名项允许原名不变时改图标和启停。
 
-已有记录的分类只能停用，不能删除。分类改名后历史记录显示新名称，因此流水不保存分类名快照。
+停用只禁止新流水使用，仍可启用；软删除只隐藏分类，不删除分类或历史流水，分类改名后历史记录显示新名称，因此流水不保存分类名快照。软删除后可重新创建同方向同名分类。
 
 ### 5.11 household_record：家庭收支流水
 
@@ -432,7 +434,7 @@ trend 返回结束月份及之前五个月，按月份升序，不受明细翻�
 | GET | /household-category/list | 分页阶段，全部/可用分类 | type、active；返回 used 标识便于判断删/停用 |
 | POST | /household-category/create | 首版，新增收入/支出分类 | type、name、icon |
 | POST | /household-category/update | 首版，改名、图标、启停 | id、name、icon、active |
-| POST | /household-category/delete | 首版，删除未使用分类 | id |
+| POST | /household-category/delete | 首版，软删除并隐藏分类，保留历史关联 | id |
 | POST | /household-category/move-up | 首版，同方向上移一位 | id；返回完整有序分类数组 |
 
 move-up 返回完整有序数组，保持当前 moveHouseholdCategory 契约；不是只返回被移动的一项。

@@ -143,13 +143,12 @@ public class LedgerService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         giftMapper.insert(entity);
-        HouseholdService.GiftHousehold household = householdService.saveGiftRecord(familyId, entity);
+        LedgerResponses.Household household = householdService.saveGiftRecord(familyId, entity);
         moneyService.validateBalances(familyId);
         moneyService.recordGift(familyId, entity, "create");
         LedgerResponses.CreatedGift result = new LedgerResponses.CreatedGift();
         result.setRecord(gift(entity));
-        result.setHouseholdRecord(household.record());
-        result.setHouseholdCategory(household.category());
+        result.setHouseholdRecord(household);
         result.setFriend(request.getFriendId() == null ? friend(friend) : null);
         return result;
     }
@@ -184,11 +183,10 @@ public class LedgerService {
         giftMapper.updateById(entity);
         LedgerResponses.CreatedGift result = new LedgerResponses.CreatedGift();
         if (linked) {
-            HouseholdService.GiftHousehold household = householdService.saveGiftRecord(familyId, entity);
+            LedgerResponses.Household household = householdService.saveGiftRecord(familyId, entity);
             moneyService.validateBalances(familyId);
             moneyService.recordGift(familyId, entity, "update");
-            result.setHouseholdRecord(household.record());
-            result.setHouseholdCategory(household.category());
+            result.setHouseholdRecord(household);
         }
         result.setRecord(gift(entity));
         result.setFriend(request.getFriendId() == null && friend != null ? friend(friend) : null);
