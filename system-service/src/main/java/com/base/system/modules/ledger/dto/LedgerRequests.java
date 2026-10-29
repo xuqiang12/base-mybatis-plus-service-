@@ -73,6 +73,7 @@ public final class LedgerRequests {
     @Data
     public static class Loan {
         private Long projectId;
+        private boolean allowSameName;
         @NotBlank(message = "请选择借贷操作")
         private String direction;
         @NotBlank(message = "姓名不能为空")

@@ -154,6 +154,102 @@ class LoanHttpTest {
                 "amountCents", 1.5, "date", "2026-10-01"), token).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    @Test
+    void sameNameNeedsConfirmationAndConfirmedCreationStillRejectsAnExactDuplicate() {
+        String token = account();
+        JsonNode brother = ok(post("/ledger/loan/create", Map.of("direction", "borrow", "name", "张三",
+                "appellation", "兄弟", "amountCents", 100, "date", "2026-10-29"), token));
+        var request = Map.of("direction", "borrow", "name", " 张三 ", "appellation", " ",
+                "amountCents", 200, "date", "2026-10-29");
+        ResponseEntity<JsonNode> first = post("/ledger/loan/create", request, token);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode confirmation = first.getBody().path("data");
+        assertThat(confirmation.path("reason").asText()).isEqualTo("LOAN_FRIEND_CONFIRM_REQUIRED");
+        assertThat(confirmation.path("canCreateNew").asBoolean()).isTrue();
+        assertThat(confirmation.path("friends")).hasSize(1);
+        assertThat(confirmation.path("friends").get(0).path("id")).isEqualTo(brother.path("friend").path("id"));
+        JsonNode before = data(token);
+        assertThat(before.path("friends")).hasSize(1);
+        assertThat(before.path("loanRecords")).hasSize(1);
+        JsonNode created = ok(post("/ledger/loan/create", Map.of("direction", "borrow", "name", " 张三 ",
+                "appellation", " ", "allowSameName", true, "amountCents", 200, "date", "2026-10-29"), token));
+        assertThat(created.path("friend").path("appellation").asText()).isEmpty();
+        assertThat(created.path("friend").path("id")).isNotEqualTo(brother.path("friend").path("id"));
+        ResponseEntity<JsonNode> repeated = post("/ledger/loan/create", Map.of("direction", "borrow", "name", "张三",
+                "allowSameName", true, "amountCents", 300, "date", "2026-10-29"), token);
+        assertThat(repeated.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        JsonNode exact = repeated.getBody().path("data");
+        assertThat(exact.path("canCreateNew").asBoolean()).isFalse();
+        assertThat(exact.path("friends")).hasSize(1);
+        assertThat(exact.path("friends").get(0).path("id")).isEqualTo(created.path("friend").path("id"));
+        assertThat(data(token).path("friends")).hasSize(2);
+        assertThat(data(token).path("loanRecords")).hasSize(2);
+    }
+
+    @Test
+    void allSameNameCandidatesAreReturnedAndYesUsesTheChosenFriendWithoutCreatingOne() {
+        String token = account();
+        JsonNode first = ok(post("/friend/create", Map.of("name", "张三", "appellation", "兄弟"), token));
+        JsonNode second = ok(post("/friend/create", Map.of("name", "张三", "appellation", "同事"), token));
+        var request = Map.of("direction", "borrow", "name", "张三", "appellation", "同学",
+                "amountCents", 100, "date", "2026-10-29");
+        ResponseEntity<JsonNode> response = post("/ledger/loan/create", request, token);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().path("data").path("friends")).hasSize(2);
+        assertThat(response.getBody().path("data").path("canCreateNew").asBoolean()).isTrue();
+        assertThat(data(token).path("loanRecords")).isEmpty();
+        JsonNode saved = ok(post("/ledger/loan/create", Map.of("direction", "borrow", "name", "张三",
+                "friendId", second.path("id").asLong(), "amountCents", 100, "date", "2026-10-29"), token));
+        assertThat(saved.path("record").path("friendId")).isEqualTo(second.path("id"));
+        assertThat(saved.path("friend").isNull()).isTrue();
+        assertThat(data(token).path("friends")).hasSize(2);
+        assertThat(saved.path("record").path("friendId")).isNotEqualTo(first.path("id"));
+        String otherFamily = account();
+        ok(post("/ledger/loan/create", request, otherFamily));
+    }
+
+    @Test
+    void identicalNonemptyAppellationAlsoDisablesNewAndConfirmationDoesNotChangeMoney() {
+        String token = account();
+        salary(token);
+        ok(post("/ledger/loan/create", Map.of("direction", "lend", "name", "张三", "appellation", "兄弟",
+                "amountCents", 100, "date", "2026-10-29"), token));
+        JsonNode before = data(token);
+        ResponseEntity<JsonNode> duplicate = post("/ledger/loan/create", Map.of("direction", "lend", "name", "张三",
+                "appellation", " 兄弟 ", "allowSameName", true, "amountCents", 200, "date", "2026-10-29"), token);
+        assertThat(duplicate.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(duplicate.getBody().path("data").path("canCreateNew").asBoolean()).isFalse();
+        JsonNode after = data(token);
+        assertThat(after.path("friends")).isEqualTo(before.path("friends"));
+        assertThat(after.path("loanRecords")).isEqualTo(before.path("loanRecords"));
+        assertThat(after.path("householdRecords")).isEqualTo(before.path("householdRecords"));
+    }
+
+    @Test
+    void concurrentConfirmedCreationsCannotCreateTwoIdenticalFriends() throws Exception {
+        String token = account();
+        ok(post("/friend/create", Map.of("name", "张三", "appellation", "兄弟"), token));
+        var body = Map.of("direction", "borrow", "name", "张三", "allowSameName", true,
+                "amountCents", 100, "date", "2026-10-29");
+        CountDownLatch start = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<Integer> action = () -> { start.await(); return post("/ledger/loan/create", body, token).getStatusCode().value(); };
+            var first = pool.submit(action);
+            var second = pool.submit(action);
+            start.countDown();
+            assertThat(List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(200, 409);
+        }
+        assertThat(data(token).path("friends")).hasSize(2);
+        assertThat(data(token).path("loanRecords")).hasSize(1);
+    }
+
+    private JsonNode data(String token) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        return ok(http.exchange("/ledger/data", HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class));
+    }
+
     private String account() {
         String email = UUID.randomUUID() + "@example.test";
         ok(post("/auth/email/register", Map.of("email", email, "code", "123456",

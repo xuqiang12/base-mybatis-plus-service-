@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** 账簿和人情流水业务，所有对象都限定在当前家庭。 */
@@ -226,6 +227,25 @@ public class LedgerService {
         if (("receive".equals(request.getDirection()) || "pay".equals(request.getDirection()))
                 && request.getFriendId() == null)
             throw new BusinessException(400, "收款或归还必须选择亲友");
+        if (request.getFriendId() == null) {
+            String name = request.getName().trim();
+            String appellation = value(request.getAppellation());
+            // 已持有家庭锁；首次提交和确认新建后的再次提交，都在写入前重新查询全部同名亲友。
+            List<FriendEntity> sameName = friendMapper.selectList(new LambdaQueryWrapper<FriendEntity>()
+                    .eq(FriendEntity::getFamilyId, familyId)
+                    .apply("TRIM(name) = {0}", name)
+                    .orderByAsc(FriendEntity::getId));
+            List<FriendEntity> identical = sameName.stream()
+                    .filter(item -> value(item.getAppellation()).equals(appellation)).toList();
+            // 完全重复优先，allowSameName 只允许同名不同称谓，不能绕过完全重复检查。
+            if (!identical.isEmpty() || (!sameName.isEmpty() && !request.isAllowSameName())) {
+                List<FriendEntity> candidates = identical.isEmpty() ? sameName : identical;
+                throw new BusinessException(409, "已有同名亲友，请确认本笔往来归属", Map.of(
+                        "reason", "LOAN_FRIEND_CONFIRM_REQUIRED",
+                        "friends", candidates.stream().map(this::friend).toList(),
+                        "canCreateNew", identical.isEmpty()));
+            }
+        }
         Long projectId = moneyService.resolveProject(familyId, request.getProjectId());
         FriendEntity friend = request.getFriendId() == null
                 ? createFriend(familyId, request.getName(), request.getAppellation())
