@@ -2,6 +2,10 @@ package com.base.system.modules.ledger;
 
 import com.base.security.LoginUser;
 import com.base.system.modules.ledger.dto.LedgerRequests;
+import com.base.system.modules.ledger.dto.LedgerQueries;
+import com.base.system.modules.ledger.dto.LedgerReadResponses;
+import com.base.common.result.PageResult;
+import jakarta.validation.constraints.Positive;
 import com.base.system.modules.ledger.dto.LedgerResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +20,111 @@ public class LedgerController {
     private final LedgerService service;
     private final HouseholdService householdService;
     private final MoneyService moneyService;
+
+    @GetMapping("/household/detail")
+    public LedgerReadResponses.Household householdDetail(@AuthenticationPrincipal LoginUser user, @RequestParam @Positive Long id) {
+        return householdService.detail(user.id(), id);
+    }
+
+    @GetMapping("/gift/detail")
+    public LedgerReadResponses.Gift giftDetail(@AuthenticationPrincipal LoginUser user, @RequestParam @Positive Long id) {
+        return service.giftDetail(user.id(), id);
+    }
+
+    @GetMapping("/book/detail")
+    public LedgerReadResponses.Book bookDetail(@AuthenticationPrincipal LoginUser user, @RequestParam @Positive Long id) {
+        return service.bookDetail(user.id(), id);
+    }
+
+    @GetMapping("/money/project/detail")
+    public LedgerResponses.MoneyProject moneyProjectDetail(@AuthenticationPrincipal LoginUser user, @RequestParam @Positive Long id) {
+        return moneyService.project(user.id(), id);
+    }
+
+    @GetMapping("/household/list")
+    public LedgerReadResponses.HouseholdPage householdList(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.Records query) {
+        return householdService.list(user.id(), query);
+    }
+
+    @GetMapping("/household/summary")
+    public LedgerReadResponses.HouseholdSummary householdSummary(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.Records query) {
+        return householdService.summary(user.id(), query);
+    }
+
+    @GetMapping("/household/statistics")
+    public LedgerReadResponses.Statistics householdStatistics(@AuthenticationPrincipal LoginUser user, @RequestParam String period) {
+        return householdService.statistics(user.id(), period);
+    }
+
+    @GetMapping("/gift/list")
+    public PageResult<LedgerReadResponses.Gift> giftList(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.Records query) {
+        return service.giftList(user.id(), query);
+    }
+
+    @GetMapping("/gift/summary")
+    public LedgerReadResponses.GiftSummary giftSummary(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.Records query) {
+        return service.giftSummary(user.id(), query);
+    }
+
+    @GetMapping("/loan/list")
+    public PageResult<LedgerReadResponses.Loan> loanList(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.Records query) {
+        return service.loanList(user.id(), query);
+    }
+
+    @GetMapping("/loan/summary")
+    public LedgerReadResponses.LoanTotals loanSummary(@AuthenticationPrincipal LoginUser user, @RequestParam @Positive Long friendId) {
+        return service.loanSummary(user.id(), friendId);
+    }
+
+    @GetMapping("/loan/summary/list")
+    public PageResult<LedgerReadResponses.FriendSummary> loanSummaryList(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.LoanSummary query) {
+        return service.loanSummaryList(user.id(), query);
+    }
+
+    @GetMapping("/book/list")
+    public PageResult<LedgerReadResponses.Book> bookList(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.Page query) {
+        return service.bookList(user.id(), query);
+    }
+
+    @GetMapping("/record/recent")
+    public java.util.List<LedgerReadResponses.Recent> recordRecent(@AuthenticationPrincipal LoginUser user, @RequestParam(defaultValue = "5") int limit) {
+        return service.recent(user.id(), limit);
+    }
+
+    @GetMapping("/money/project/list")
+    public java.util.List<LedgerResponses.MoneyProject> moneyProjectList(@AuthenticationPrincipal LoginUser user) {
+        return moneyService.projects(user.id());
+    }
+
+    @GetMapping("/category/list")
+    public java.util.List<LedgerResponses.Category> categoryList(@AuthenticationPrincipal LoginUser user) {
+        return householdService.categories(user.id());
+    }
+
+    @GetMapping("/history/friend/list")
+    public PageResult<com.base.system.modules.friend.dto.FriendResponse> historyFriend(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.History query) {
+        return service.historyFriends(user.id(), query);
+    }
+
+    @GetMapping("/history/book/list")
+    public PageResult<LedgerReadResponses.Book> historyBook(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.History query) {
+        return service.historyBooks(user.id(), query);
+    }
+
+    @GetMapping("/history/gift/list")
+    public PageResult<LedgerReadResponses.Gift> historyGift(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.History query) {
+        return service.historyGifts(user.id(), query);
+    }
+
+    @GetMapping("/history/loan/list")
+    public PageResult<LedgerReadResponses.Loan> historyLoan(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.History query) {
+        return service.historyLoans(user.id(), query);
+    }
+
+    @GetMapping("/history/household/list")
+    public LedgerReadResponses.HouseholdPage historyHousehold(@AuthenticationPrincipal LoginUser user, @Valid LedgerQueries.History query) {
+        return service.historyHousehold(user.id(), query);
+    }
 
     @GetMapping("/money")
     public LedgerResponses.MoneySummary money(@AuthenticationPrincipal LoginUser user) {
@@ -60,11 +169,13 @@ public class LedgerController {
         return moneyService.deleteProject(user.id(), request.getId());
     }
 
+    /** 兼容旧客户端；新页面使用独立详情、分页与统计查询。 */
     @GetMapping("/data")
     public LedgerResponses.DataSet data(@AuthenticationPrincipal LoginUser user) {
         return service.data(user.id());
     }
 
+    /** 兼容旧客户端；新历史页面按资源分页查询。 */
     @GetMapping("/history/data")
     public LedgerResponses.DataSet history(@AuthenticationPrincipal LoginUser user, @RequestParam String familyId) {
         return service.history(user.id(), familyId);

@@ -5,6 +5,9 @@ import com.base.common.exception.BusinessException;
 import com.base.system.modules.family.FamilyModels;
 import com.base.system.modules.family.mapper.FamilyMapper;
 import com.base.system.modules.ledger.dto.LedgerRequests;
+import com.base.system.modules.ledger.dto.LedgerQueries;
+import com.base.system.modules.ledger.dto.LedgerReadResponses;
+import org.springframework.jdbc.core.JdbcTemplate;
 import com.base.system.modules.ledger.dto.LedgerResponses;
 import com.base.system.modules.ledger.entity.CategoryEntity;
 import com.base.system.modules.ledger.entity.GiftEntity;
@@ -38,6 +41,146 @@ public class HouseholdService {
     private final HouseholdItemMapper itemMapper;
     private final FamilyMapper familyMapper;
     private final MoneyService moneyService;
+    private final JdbcTemplate jdbc;
+
+    private static final String EFFECTIVE_DATE = "COALESCE(h.record_date, CAST(m.month_value || '-01' AS DATE))";
+    private static final String READ_FROM = " FROM relations.ledger_household_item h "
+            + "JOIN relations.ledger_household_month m ON m.id=h.month_id AND m.family_id=h.family_id "
+            + "LEFT JOIN relations.ledger_category c ON c.id=h.category_id AND c.family_id=h.family_id "
+            + "LEFT JOIN relations.ledger_money_project p ON p.id=h.project_id AND p.family_id=h.family_id "
+            + "LEFT JOIN relations.ledger_gift g ON g.id=h.gift_id AND g.family_id=h.family_id "
+            + "LEFT JOIN relations.ledger_book b ON b.id=g.book_id AND b.family_id=h.family_id ";
+    private static final String READ_SELECT = "SELECT h.*, " + EFFECTIVE_DATE + " AS effective_date, "
+            + "c.name AS category_name,c.icon AS category_icon,c.active AS category_active,c.deleted_at AS category_deleted_at,"
+            + "p.name AS project_name,CASE WHEN p.cash_key='cash' THEN 'cash' ELSE p.type END AS project_type,"
+            + "g.name AS gift_name,g.appellation AS gift_appellation,g.event_type AS gift_event_type,b.name AS book_name";
+    private static final String SUM_SELECT = "COUNT(*) AS count,"
+            + "COALESCE(SUM(CASE WHEN h.type='income' THEN h.amount_cents ELSE 0 END),0) AS income_cents,"
+            + "COALESCE(SUM(CASE WHEN h.type='expense' THEN h.amount_cents ELSE 0 END),0) AS expense_cents,"
+            + "COALESCE(SUM(CASE WHEN h.type='saving' THEN CASE WHEN h.saving_effect='subtract' THEN -h.amount_cents ELSE h.amount_cents END "
+            + "WHEN h.type='income' AND p.cash_key IS NULL AND p.id IS NOT NULL THEN h.amount_cents "
+            + "WHEN h.type='expense' AND p.cash_key IS NULL AND p.id IS NOT NULL THEN -h.amount_cents ELSE 0 END),0) AS saving_cents";
+
+    public LedgerReadResponses.Household detail(int userId, long id) {
+        String familyId = currentFamily(userId, false);
+        var rows = jdbc.query(READ_SELECT + READ_FROM + " WHERE h.family_id=? AND h.id=?", this::readHousehold, familyId, id);
+        if (rows.isEmpty()) throw new BusinessException(404, "收支记录不存在");
+        return rows.getFirst();
+    }
+
+    public LedgerReadResponses.HouseholdPage list(int userId, LedgerQueries.Records query) {
+        return listForFamily(currentFamily(userId, false), query);
+    }
+
+    LedgerReadResponses.HouseholdPage listForFamily(String familyId, LedgerQueries.Records query) {
+        var args = new java.util.ArrayList<Object>();
+        String where = householdWhere(familyId, query, args);
+        long total = jdbc.queryForObject("SELECT COUNT(*)" + READ_FROM + where, Long.class, args.toArray());
+        args.add(query.getPageSize()); args.add(query.offset());
+        var rows = jdbc.query(READ_SELECT + READ_FROM + where + " ORDER BY effective_date DESC,h.id DESC LIMIT ? OFFSET ?", this::readHousehold, args.toArray());
+        var result = new LedgerReadResponses.HouseholdPage();
+        result.setList(rows); result.setTotal(total); result.setPageNum(query.getPageNum()); result.setPageSize(query.getPageSize());
+        result.setMonthSummaries(List.of());
+        if (!rows.isEmpty()) {
+            var selectedMonths = rows.stream().map(row -> row.getDate().substring(0, 7)).distinct().toList();
+            var monthArgs = new java.util.ArrayList<Object>();
+            String monthWhere = householdWhere(familyId, query, monthArgs);
+            String month = "SUBSTRING(CAST(" + EFFECTIVE_DATE + " AS VARCHAR),1,7)";
+            monthWhere += " AND " + month + " IN (" + String.join(",", java.util.Collections.nCopies(selectedMonths.size(), "?")) + ")";
+            monthArgs.addAll(selectedMonths);
+            result.setMonthSummaries(jdbc.query("SELECT " + month + " AS selected_month," + SUM_SELECT + READ_FROM + monthWhere
+                    + " GROUP BY " + month + " ORDER BY selected_month DESC", (row, index) -> {
+                var item = new LedgerReadResponses.MonthSummary(); item.setMonth(row.getString("selected_month")); readSummary(row, item); return item;
+            }, monthArgs.toArray()));
+        }
+        return result;
+    }
+
+    public LedgerReadResponses.HouseholdSummary summary(int userId, LedgerQueries.Records query) {
+        return summaryForFamily(currentFamily(userId, false), query);
+    }
+
+    private LedgerReadResponses.HouseholdSummary summaryForFamily(String familyId, LedgerQueries.Records query) {
+        var args = new java.util.ArrayList<Object>();
+        String where = householdWhere(familyId, query, args);
+        return jdbc.queryForObject("SELECT " + SUM_SELECT + READ_FROM + where, (row, index) -> {
+            var result = new LedgerReadResponses.HouseholdSummary();
+            readSummary(row, result);
+            return result;
+        }, args.toArray());
+    }
+
+    @Transactional
+    public List<LedgerResponses.Category> categories(int userId) {
+        String familyId = currentFamily(userId, true);
+        ensureCategories(familyId);
+        return categoryMapper.selectList(new LambdaQueryWrapper<CategoryEntity>()
+                .eq(CategoryEntity::getFamilyId, familyId).orderByAsc(CategoryEntity::getSortOrder).orderByAsc(CategoryEntity::getId))
+                .stream().map(this::category).toList();
+    }
+
+    public LedgerReadResponses.Statistics statistics(int userId, String period) {
+        if (period == null) throw new BusinessException(400, "请选择有效期间");
+        String familyId = currentFamily(userId, false);
+        var query = new LedgerQueries.Records(); query.setPeriod(period);
+        var args = new java.util.ArrayList<Object>();
+        String where = householdWhere(familyId, query, args);
+        var result = new LedgerReadResponses.Statistics();
+        result.setSummary(summaryForFamily(familyId, query));
+        String month = "SUBSTRING(CAST(" + EFFECTIVE_DATE + " AS VARCHAR),1,7)";
+        var months = jdbc.query("SELECT " + month + " AS selected_month," + SUM_SELECT + READ_FROM + where + " GROUP BY " + month + " ORDER BY selected_month", (row, index) -> {
+            var item = new LedgerReadResponses.MonthSummary(); item.setMonth(row.getString("selected_month")); readSummary(row, item); return item;
+        }, args.toArray());
+        if (period.length() == 4) {
+            var byMonth = months.stream().collect(Collectors.toMap(LedgerReadResponses.MonthSummary::getMonth, Function.identity()));
+            months = java.util.stream.IntStream.rangeClosed(1, 12).mapToObj(number -> {
+                String key = period + String.format("-%02d", number);
+                var item = byMonth.get(key);
+                if (item == null) { item = new LedgerReadResponses.MonthSummary(); item.setMonth(key); }
+                return item;
+            }).toList();
+        }
+        result.setMonths(months);
+        result.setCategories(jdbc.query("SELECT h.type,h.category_id,CASE WHEN h.gift_id IS NOT NULL THEN 'gift' ELSE NULL END AS source,"
+                + "c.name AS category_name,c.icon AS category_icon,COUNT(*) AS count,SUM(CASE WHEN h.type='saving' AND h.saving_effect='subtract' THEN -h.amount_cents ELSE h.amount_cents END) AS amount_cents" + READ_FROM + where
+                + " GROUP BY h.type,h.category_id,CASE WHEN h.gift_id IS NOT NULL THEN 'gift' ELSE NULL END,c.name,c.icon,c.sort_order"
+                + " ORDER BY h.type,c.sort_order,h.category_id", (row, index) -> {
+            var item = new LedgerReadResponses.CategorySummary(); item.setType(row.getString("type"));
+            item.setCategoryId(row.getObject("category_id", Long.class)); item.setSource(row.getString("source"));
+            item.setCategoryName(row.getString("category_name")); item.setCategoryIcon(row.getString("category_icon"));
+            item.setAmountCents(row.getLong("amount_cents")); item.setCount(row.getLong("count")); return item;
+        }, args.toArray()));
+        return result;
+    }
+
+    private String householdWhere(String familyId, LedgerQueries.Records query, List<Object> args) {
+        args.add(familyId);
+        String where = " WHERE h.family_id=? AND h.loan_id IS NULL";
+        if (query.getPeriod() != null) { where += " AND " + EFFECTIVE_DATE + ">=? AND " + EFFECTIVE_DATE + "<?"; args.add(LedgerQueries.start(query.getPeriod())); args.add(LedgerQueries.end(query.getPeriod())); }
+        if (query.getType() != null) { where += " AND h.type=?"; args.add(query.getType()); }
+        if (query.getCategoryId() != null) { where += " AND h.category_id=? AND h.gift_id IS NULL"; args.add(query.getCategoryId()); }
+        if (query.getSource() != null) where += " AND h.gift_id IS NOT NULL";
+        return where;
+    }
+
+    private void readSummary(java.sql.ResultSet row, LedgerReadResponses.HouseholdSummary item) throws java.sql.SQLException {
+        item.setCount(row.getLong("count")); item.setIncomeCents(row.getLong("income_cents")); item.setExpenseCents(row.getLong("expense_cents")); item.setSavingCents(row.getLong("saving_cents"));
+        item.setBalanceCents(item.getIncomeCents() - item.getExpenseCents() - item.getSavingCents());
+    }
+
+    private LedgerReadResponses.Household readHousehold(java.sql.ResultSet row, int index) throws java.sql.SQLException {
+        var item = new LedgerReadResponses.Household();
+        item.setId(row.getLong("id")); item.setType(row.getString("type")); item.setCategoryId(row.getObject("category_id", Long.class));
+        item.setAmountCents(row.getLong("amount_cents")); item.setDate(row.getDate("effective_date").toString()); item.setNote(row.getString("note"));
+        item.setProjectId(row.getObject("project_id", Long.class)); item.setProjectType(row.getString("project_type"));
+        item.setGiftId(row.getObject("gift_id", Long.class)); item.setLoanId(row.getObject("loan_id", Long.class)); item.setSavingEffect(row.getString("saving_effect"));
+        item.setCreatedBy(row.getString("created_by")); item.setCreatedByName(row.getString("created_by_name"));
+        item.setCreatedAt(row.getTimestamp("created_at").toInstant()); item.setUpdatedAt(row.getTimestamp("updated_at").toInstant());
+        item.setCategoryName(row.getString("category_name")); item.setCategoryIcon(row.getString("category_icon")); item.setCategoryActive(row.getObject("category_active", Boolean.class));
+        item.setCategoryDeleted(row.getTimestamp("category_deleted_at") != null); item.setProjectName(row.getString("project_name"));
+        item.setBookName(row.getString("book_name")); item.setGiftName(row.getString("gift_name")); item.setGiftAppellation(row.getString("gift_appellation")); item.setGiftEventType(row.getString("gift_event_type"));
+        return item;
+    }
 
     /** 返回当前家庭分类和月度分类合计。 */
     @Transactional
@@ -209,6 +352,8 @@ public class HouseholdService {
         LedgerResponses.Month result = new LedgerResponses.Month();
         result.setId(month == null ? null : month.getId());
         result.setMonth(date.toString().substring(0, 7));
+        var query = new LedgerQueries.Records(); query.setPeriod(result.getMonth());
+        result.setSummary(summaryForFamily(familyId, query));
         result.setItems(month == null ? List.of() : itemMapper.selectList(new LambdaQueryWrapper<HouseholdItemEntity>()
                 .eq(HouseholdItemEntity::getFamilyId, familyId).eq(HouseholdItemEntity::getMonthId, month.getId()))
                 .stream().map(item -> household(item, date.toString(), projectTypes)).toList());

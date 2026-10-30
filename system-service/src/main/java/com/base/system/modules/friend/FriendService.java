@@ -18,6 +18,9 @@ import com.base.system.modules.ledger.entity.LoanEntity;
 import com.base.system.modules.ledger.mapper.GiftMapper;
 import com.base.system.modules.ledger.mapper.LoanMapper;
 import lombok.RequiredArgsConstructor;
+import com.base.system.modules.ledger.dto.LedgerQueries;
+import com.base.system.modules.ledger.dto.LedgerReadResponses;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +38,7 @@ public class FriendService {
     private final FamilyMapper familyMapper;
     private final GiftMapper giftMapper;
     private final LoanMapper loanMapper;
+    private final JdbcTemplate jdbc;
 
     /**
      * 新增亲友；事务保证本次数据库写入整体提交或回滚。
@@ -82,6 +86,36 @@ public class FriendService {
         // PageResult 按“列表、总条数、当前页码、每页条数”的顺序封装分页结果。
         return new PageResult<>(page.getRecords().stream().map(this::response).toList(),
                 page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    /** 只聚合当前页亲友，以两次分组 SQL 取代逐亲友查询。 */
+    public PageResult<LedgerReadResponses.FriendSummary> summaryList(int userId, LedgerQueries.Friends query) {
+        var request = new FriendQueryRequest(); request.setName(query.getName()); request.setPageNum(query.getPageNum()); request.setPageSize(query.getPageSize());
+        var page = list(userId, request);
+        var rows = page.list().stream().map(friend -> {
+            var result = new LedgerReadResponses.FriendSummary(); BeanUtils.copyProperties(friend, result); return result;
+        }).toList();
+        if (rows.isEmpty()) return new PageResult<>(rows, page.total(), page.pageNum(), page.pageSize());
+        String familyId = rows.getFirst().getFamilyId();
+        var args = new java.util.ArrayList<Object>(); args.add(familyId); rows.forEach(friend -> args.add(friend.getId()));
+        String ids = String.join(",", java.util.Collections.nCopies(rows.size(), "?"));
+        var byId = rows.stream().collect(java.util.stream.Collectors.toMap(FriendResponse::getId, friend -> friend));
+        jdbc.query("SELECT friend_id,"
+                + "SUM(CASE WHEN direction='received' THEN amount_cents ELSE 0 END) AS received_cents,"
+                + "SUM(CASE WHEN direction='sent' THEN amount_cents ELSE 0 END) AS sent_cents,"
+                + "COUNT(CASE WHEN direction='received' THEN 1 END) AS received_count,COUNT(CASE WHEN direction='sent' THEN 1 END) AS sent_count,MAX(date) AS last_date "
+                + "FROM relations.ledger_gift WHERE family_id=? AND friend_id IN (" + ids + ") GROUP BY friend_id", (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+            var friend = byId.get(row.getLong("friend_id")); friend.setReceivedCents(row.getLong("received_cents")); friend.setSentCents(row.getLong("sent_cents"));
+            friend.setReceivedCount(row.getLong("received_count")); friend.setSentCount(row.getLong("sent_count")); friend.setBalanceCents(friend.getReceivedCents() - friend.getSentCents());
+            friend.setLastDate(row.getObject("last_date", java.time.LocalDate.class));
+        }, args.toArray());
+        jdbc.query("SELECT friend_id,COUNT(*) AS count,"
+                + "SUM(CASE WHEN direction='lend' THEN amount_cents WHEN direction='receive' THEN -amount_cents ELSE 0 END) AS receivable_cents,"
+                + "SUM(CASE WHEN direction='borrow' THEN amount_cents WHEN direction='pay' THEN -amount_cents ELSE 0 END) AS payable_cents "
+                + "FROM relations.ledger_loan WHERE family_id=? AND friend_id IN (" + ids + ") GROUP BY friend_id", (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+            var friend = byId.get(row.getLong("friend_id")); friend.setReceivableCents(row.getLong("receivable_cents")); friend.setPayableCents(row.getLong("payable_cents")); friend.setCount(row.getLong("count"));
+        }, args.toArray());
+        return new PageResult<>(rows, page.total(), page.pageNum(), page.pageSize());
     }
 
     /**

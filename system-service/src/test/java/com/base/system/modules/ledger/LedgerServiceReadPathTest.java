@@ -39,7 +39,7 @@ class LedgerServiceReadPathTest {
         when(loans.selectList(any())).thenReturn(List.of(first, second));
         when(money.resolveProject("family-1", null)).thenReturn(9L);
 
-        LedgerService service = new LedgerService(books, gifts, loans, household, friends, families, money);
+        LedgerService service = new LedgerService(books, gifts, loans, household, friends, families, money, mock(org.springframework.jdbc.core.JdbcTemplate.class));
         Method method = LedgerService.class.getDeclaredMethod(
                 "dataForFamily", String.class, HouseholdService.Snapshot.class);
         method.setAccessible(true);

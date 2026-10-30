@@ -102,6 +102,7 @@ public final class LedgerResponses {
         private Long id;
         private String month;
         private List<Household> items;
+        private LedgerReadResponses.HouseholdSummary summary;
     }
 
     @Data

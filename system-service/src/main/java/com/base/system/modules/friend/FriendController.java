@@ -8,6 +8,8 @@ import com.base.system.modules.friend.dto.FriendQueryRequest;
 import com.base.system.modules.friend.dto.FriendResponse;
 import com.base.system.modules.friend.dto.FriendUpdateRequest;
 import jakarta.validation.Valid;
+import com.base.system.modules.ledger.dto.LedgerQueries;
+import com.base.system.modules.ledger.dto.LedgerReadResponses;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -39,6 +41,12 @@ public class FriendController {
     public PageResult<FriendResponse> list(@AuthenticationPrincipal LoginUser user,
                                            @Valid FriendQueryRequest query) {
         return friendService.list(user.id(), query);
+    }
+
+    @GetMapping("/summary/list")
+    public PageResult<LedgerReadResponses.FriendSummary> summaryList(@AuthenticationPrincipal LoginUser user,
+                                                                    @Valid LedgerQueries.Friends query) {
+        return friendService.summaryList(user.id(), query);
     }
 
     /**

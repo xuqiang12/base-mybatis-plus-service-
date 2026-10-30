@@ -1,5 +1,39 @@
 # 礼账项目 Java 后端接口与数据库规划
 
+## 2026-10-29 当前查询接口
+
+下表是本次已实现的独立查询，优先于后文早期规划。统一响应为 `{code,message,data}`，列表默认20条、最大100条，沿用 `{list,total,pageNum,pageSize}`；已有 `/friend/list` 选择器默认10条不变。当前家庭从登录身份解析，不接受客户端指定家庭；只有历史只读查询接收 `familyId` 并校验原账号权限。
+
+| GET 路径 | 入参 | 返回职责 |
+| --- | --- | --- |
+| `/ledger/household/detail` | id | 单条收支及分类状态、账户名、人情姓名和账簿名 |
+| `/ledger/household/list` | period?、type?、categoryId?、source=gift?、pageNum、pageSize | 收支分页，排除借贷辅助记录；额外返回当前页涉及月份的完整筛选范围 `monthSummaries` |
+| `/ledger/household/summary` | 同上业务筛选 | count、incomeCents、expenseCents、savingCents、balanceCents，无流水 |
+| `/ledger/household/statistics` | period 必填 | summary、months、categories，年份补齐12个月，无明细 |
+| `/ledger/category/list` | 无 | 有序分类配置，包含 active/deleted |
+| `/ledger/household/month` | month | 保留月度编辑 items，增加同月 summary |
+| `/ledger/gift/detail` | id | 单条人情及 bookName/projectName |
+| `/ledger/gift/list` | friendId?、bookId?、direction?、period?、pageNum、pageSize | 人情分页，保留历史姓名快照 |
+| `/ledger/gift/summary` | 同上业务筛选 | receivedCents/sentCents/receivedCount/sentCount/balanceCents/lastDate |
+| `/ledger/loan/list` | friendId?、direction?、period?、pageNum、pageSize | 借贷分页及账户名 |
+| `/ledger/loan/summary` | friendId | receivableCents/payableCents/count |
+| `/ledger/loan/summary/list` | side=receivable 或 payable、pageNum、pageSize | 按亲友汇总待收/待还，两个方向分别过滤，不能净额抵消 |
+| `/ledger/book/detail` | id | 账簿资料及 recordCount/receivedCents |
+| `/ledger/book/list` | pageNum、pageSize | 账簿资料和汇总分页 |
+| `/friend/list`、`/friend/detail` | 既有参数 | 只查档案，供选择器和档案修改 |
+| `/friend/summary/list` | name?、pageNum、pageSize | 档案分页及人情、待收待还、最近人情日期；只批量聚合当前页亲友 |
+| `/ledger/money/project/detail` | id | 单账户资料与余额 |
+| `/ledger/money/project/list` | 无 | 账户配置及批量聚合余额，无流水 |
+| `/ledger/money` | 无 | 保留资金总览职责，复用账户余额聚合 |
+| `/ledger/record/recent` | limit 默认5、最大20 | 三类有限最近记录；各来源按更新时间先 LIMIT，再按同一规则合并稳定排序 |
+| `/ledger/history/{friend,book,gift,loan,household}/list` | familyId、pageNum、pageSize | 五个独立历史只读资源分页，家庭归属单独校验 |
+
+`period` 为 YYYY 或 YYYY-MM，不传查该业务全部期间。收支日期为空时使用所属月份首日，筛选、分组和返回日期一致。净存入保留“手动存款（含历史冲减）+非现金收入-非现金消费”；未分配 `balanceCents=收入-消费-净存入`。分类统计保留手动存款流水金额，不将净存入伪造为流水。账户、借贷、收支和人情汇总均在 SQL 聚合；不读取整家庭实体再在 Java 过滤。
+
+旧 `/ledger/data` 和 `/ledger/history/data` 保留原快照语义，仅用于旧客户端兼容。本次没有删除旧接口、修改写入事务或新增数据库迁移。实测和限制见 [礼账查询拆分后端验证](礼账查询拆分后端验证.md) 与 [PostgreSQL执行计划](礼账查询拆分PostgreSQL执行计划.md)。
+
+---
+
 日期：2026-10-16。
 
 2026-10-29 人情来源调整：当前真实服务已实现人情收支联动，人情往来作为独立大类，通过 `ledger_household_item.gift_id` 关联原人情，`category_id` 为空；普通家庭收支仍必须有分类。人情保存响应不再返回 `householdCategory`，新增、修改、删除仍同步收支和账户。V3_17 将已关联的人情收支解除旧分类关联，仅供人情使用的旧分类软删除，普通收支仍引用的分类保留；未入账的旧人情不补账。下文早期状态与草案保留历史背景，当前行为以源码及《礼账需求验收对照》为准。

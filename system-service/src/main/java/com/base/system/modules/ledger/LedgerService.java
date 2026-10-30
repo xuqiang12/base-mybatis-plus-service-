@@ -9,6 +9,10 @@ import com.base.system.modules.friend.dto.FriendResponse;
 import com.base.system.modules.friend.entity.FriendEntity;
 import com.base.system.modules.friend.mapper.FriendMapper;
 import com.base.system.modules.ledger.dto.LedgerRequests;
+import com.base.system.modules.ledger.dto.LedgerQueries;
+import com.base.system.modules.ledger.dto.LedgerReadResponses;
+import com.base.common.result.PageResult;
+import org.springframework.jdbc.core.JdbcTemplate;
 import com.base.system.modules.ledger.dto.LedgerResponses;
 import com.base.system.modules.ledger.entity.BookEntity;
 import com.base.system.modules.ledger.entity.GiftEntity;
@@ -40,6 +44,235 @@ public class LedgerService {
     private final FriendMapper friendMapper;
     private final FamilyMapper familyMapper;
     private final MoneyService moneyService;
+    private final JdbcTemplate jdbc;
+
+    private static final String GIFT_FROM = " FROM relations.ledger_gift r "
+            + "LEFT JOIN relations.ledger_book b ON b.id=r.book_id AND b.family_id=r.family_id "
+            + "LEFT JOIN relations.ledger_money_project p ON p.id=r.project_id AND p.family_id=r.family_id ";
+    private static final String GIFT_SELECT = "SELECT r.*,b.name AS book_name,p.name AS project_name";
+    private static final String LOAN_FROM = " FROM relations.ledger_loan r "
+            + "LEFT JOIN relations.ledger_money_project cash ON cash.family_id=r.family_id AND cash.cash_key='cash' "
+            + "LEFT JOIN relations.ledger_money_project p ON p.id=COALESCE(r.project_id,cash.id) AND p.family_id=r.family_id ";
+    private static final String LOAN_SELECT = "SELECT r.*,p.id AS resolved_project_id,p.name AS project_name";
+    private static final String BOOK_FROM = " FROM relations.ledger_book b LEFT JOIN "
+            + "(SELECT book_id,COUNT(*) AS record_count,SUM(amount_cents) AS received_cents FROM relations.ledger_gift "
+            + "WHERE family_id=? AND direction='received' GROUP BY book_id) g ON g.book_id=b.id WHERE b.family_id=?";
+    private static final String BOOK_SELECT = "SELECT b.*,COALESCE(g.record_count,0) AS record_count,COALESCE(g.received_cents,0) AS received_cents";
+    private static final String LOAN_TOTALS = "COUNT(*) AS count,"
+            + "COALESCE(SUM(CASE WHEN direction='lend' THEN amount_cents WHEN direction='receive' THEN -amount_cents ELSE 0 END),0) AS receivable_cents,"
+            + "COALESCE(SUM(CASE WHEN direction='borrow' THEN amount_cents WHEN direction='pay' THEN -amount_cents ELSE 0 END),0) AS payable_cents";
+
+    public LedgerReadResponses.Gift giftDetail(int userId, long id) {
+        String familyId = currentFamily(userId, false);
+        var rows = jdbc.query(GIFT_SELECT + GIFT_FROM + " WHERE r.family_id=? AND r.id=?", this::readGift, familyId, id);
+        if (rows.isEmpty()) throw new BusinessException(404, "人情记录不存在");
+        return rows.getFirst();
+    }
+
+    public PageResult<LedgerReadResponses.Gift> giftList(int userId, LedgerQueries.Records query) {
+        return giftListForFamily(currentFamily(userId, false), query);
+    }
+
+    private PageResult<LedgerReadResponses.Gift> giftListForFamily(String familyId, LedgerQueries.Records query) {
+        var args = new java.util.ArrayList<Object>();
+        String where = recordWhere(familyId, query, args, true);
+        long total = jdbc.queryForObject("SELECT COUNT(*)" + GIFT_FROM + where, Long.class, args.toArray());
+        args.add(query.getPageSize()); args.add(query.offset());
+        var records = jdbc.query(GIFT_SELECT + GIFT_FROM + where + " ORDER BY r.date DESC,r.id DESC LIMIT ? OFFSET ?", this::readGift, args.toArray());
+        return new PageResult<>(records, total, query.getPageNum(), query.getPageSize());
+    }
+
+    public LedgerReadResponses.GiftSummary giftSummary(int userId, LedgerQueries.Records query) {
+        var args = new java.util.ArrayList<Object>();
+        String where = recordWhere(currentFamily(userId, false), query, args, true);
+        return jdbc.queryForObject("SELECT COALESCE(SUM(CASE WHEN r.direction='received' THEN r.amount_cents ELSE 0 END),0) AS received_cents,"
+                + "COALESCE(SUM(CASE WHEN r.direction='sent' THEN r.amount_cents ELSE 0 END),0) AS sent_cents,"
+                + "COUNT(CASE WHEN r.direction='received' THEN 1 END) AS received_count,COUNT(CASE WHEN r.direction='sent' THEN 1 END) AS sent_count,MAX(r.date) AS last_date"
+                + " FROM relations.ledger_gift r" + where, (row, index) -> {
+            var result = new LedgerReadResponses.GiftSummary();
+            result.setReceivedCents(row.getLong("received_cents")); result.setSentCents(row.getLong("sent_cents"));
+            result.setReceivedCount(row.getLong("received_count")); result.setSentCount(row.getLong("sent_count"));
+            result.setBalanceCents(result.getReceivedCents() - result.getSentCents());
+            result.setLastDate(row.getObject("last_date", java.time.LocalDate.class)); return result;
+        }, args.toArray());
+    }
+
+    public PageResult<LedgerReadResponses.Loan> loanList(int userId, LedgerQueries.Records query) {
+        return loanListForFamily(currentFamily(userId, false), query);
+    }
+
+    private PageResult<LedgerReadResponses.Loan> loanListForFamily(String familyId, LedgerQueries.Records query) {
+        var args = new java.util.ArrayList<Object>();
+        String where = recordWhere(familyId, query, args, false);
+        long total = jdbc.queryForObject("SELECT COUNT(*)" + LOAN_FROM + where, Long.class, args.toArray());
+        args.add(query.getPageSize()); args.add(query.offset());
+        var records = jdbc.query(LOAN_SELECT + LOAN_FROM + where + " ORDER BY r.date DESC,r.id DESC LIMIT ? OFFSET ?", this::readLoan, args.toArray());
+        return new PageResult<>(records, total, query.getPageNum(), query.getPageSize());
+    }
+
+    public LedgerReadResponses.LoanTotals loanSummary(int userId, long friendId) {
+        String familyId = currentFamily(userId, false);
+        ownedFriend(familyId, friendId);
+        return jdbc.queryForObject("SELECT " + LOAN_TOTALS + " FROM relations.ledger_loan WHERE family_id=? AND friend_id=?", (row, index) -> {
+            var result = new LedgerReadResponses.LoanTotals(); result.setCount(row.getLong("count"));
+            result.setReceivableCents(row.getLong("receivable_cents")); result.setPayableCents(row.getLong("payable_cents")); return result;
+        }, familyId, friendId);
+    }
+
+    public PageResult<LedgerReadResponses.FriendSummary> loanSummaryList(int userId, LedgerQueries.LoanSummary query) {
+        String familyId = currentFamily(userId, false);
+        String grouped = " FROM (SELECT friend_id,MAX(name) AS snapshot_name,MAX(appellation) AS snapshot_appellation," + LOAN_TOTALS
+                + " FROM relations.ledger_loan WHERE family_id=? GROUP BY friend_id) l "
+                + "LEFT JOIN relations.ledger_friend f ON f.id=l.friend_id AND f.family_id=? WHERE l."
+                + ("receivable".equals(query.getSide()) ? "receivable_cents" : "payable_cents") + ">0";
+        long total = jdbc.queryForObject("SELECT COUNT(*)" + grouped, Long.class, familyId, familyId);
+        var rows = jdbc.query("SELECT l.*,f.id,f.family_id,COALESCE(f.name,l.snapshot_name) AS name,COALESCE(f.appellation,l.snapshot_appellation) AS appellation,"
+                + "f.gender,f.remark,f.created_at,f.updated_at" + grouped + " ORDER BY l.friend_id DESC LIMIT ? OFFSET ?", (row, index) -> {
+            var result = new LedgerReadResponses.FriendSummary(); result.setId(row.getObject("friend_id", Long.class));
+            result.setFamilyId(familyId); result.setName(row.getString("name")); result.setAppellation(row.getString("appellation"));
+            result.setGender(row.getObject("gender", Integer.class)); result.setRemark(row.getString("remark"));
+            result.setReceivableCents(row.getLong("receivable_cents")); result.setPayableCents(row.getLong("payable_cents")); result.setCount(row.getLong("count"));
+            if (row.getTimestamp("created_at") != null) result.setCreatedAt(row.getTimestamp("created_at").toInstant());
+            if (row.getTimestamp("updated_at") != null) result.setUpdatedAt(row.getTimestamp("updated_at").toInstant());
+            return result;
+        }, familyId, familyId, query.getPageSize(), query.offset());
+        return new PageResult<>(rows, total, query.getPageNum(), query.getPageSize());
+    }
+
+    public LedgerReadResponses.Book bookDetail(int userId, long id) {
+        String familyId = currentFamily(userId, false);
+        var rows = jdbc.query(BOOK_SELECT + BOOK_FROM + " AND b.id=?", this::readBook, familyId, familyId, id);
+        if (rows.isEmpty()) throw new BusinessException(404, "账簿不存在");
+        return rows.getFirst();
+    }
+
+    public PageResult<LedgerReadResponses.Book> bookList(int userId, LedgerQueries.Page query) {
+        return bookListForFamily(currentFamily(userId, false), query);
+    }
+
+    private PageResult<LedgerReadResponses.Book> bookListForFamily(String familyId, LedgerQueries.Page query) {
+        long total = jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_book WHERE family_id=?", Long.class, familyId);
+        var rows = jdbc.query(BOOK_SELECT + BOOK_FROM + " ORDER BY b.created_at DESC,b.id DESC LIMIT ? OFFSET ?", this::readBook,
+                familyId, familyId, query.getPageSize(), query.offset());
+        return new PageResult<>(rows, total, query.getPageNum(), query.getPageSize());
+    }
+
+    private String recordWhere(String familyId, LedgerQueries.Records query, List<Object> args, boolean gift) {
+        args.add(familyId); String where = " WHERE r.family_id=?";
+        if (query.getFriendId() != null) { where += " AND r.friend_id=?"; args.add(query.getFriendId()); }
+        if (gift && query.getBookId() != null) { where += " AND r.book_id=?"; args.add(query.getBookId()); }
+        if (query.getDirection() != null) {
+            Set<String> allowed = gift ? Set.of("received", "sent") : Set.of("lend", "borrow", "receive", "pay");
+            if (!allowed.contains(query.getDirection())) throw new BusinessException(400, "请选择有效方向");
+            where += " AND r.direction=?"; args.add(query.getDirection());
+        }
+        if (query.getPeriod() != null) { where += " AND r.date>=? AND r.date<?"; args.add(LedgerQueries.start(query.getPeriod())); args.add(LedgerQueries.end(query.getPeriod())); }
+        return where;
+    }
+
+    public List<LedgerReadResponses.Recent> recent(int userId, int limit) {
+        if (limit < 1 || limit > 20) throw new BusinessException(400, "最近记录条数须为 1 至 20");
+        String familyId = currentFamily(userId, false);
+        var records = new java.util.ArrayList<LedgerReadResponses.Recent>();
+        for (var gift : jdbc.query(GIFT_SELECT + GIFT_FROM + " WHERE r.family_id=? ORDER BY COALESCE(r.updated_at,r.created_at) DESC,r.id DESC LIMIT ?", this::readGift, familyId, limit)) {
+            var item = new LedgerReadResponses.Recent(); item.setKind("gift"); item.setProjectId(gift.getProjectId()); item.setId(gift.getId()); item.setTitle(gift.getName());
+            item.setDate(gift.getDate().toString()); item.setAmountCents(gift.getAmountCents()); item.setDirection(gift.getDirection());
+            item.setEventType(gift.getEventType()); item.setName(gift.getName()); item.setAppellation(gift.getAppellation()); item.setNote(gift.getNote());
+            item.setCreatedAt(gift.getCreatedAt()); item.setUpdatedAt(gift.getUpdatedAt()); records.add(item);
+        }
+        for (var loan : jdbc.query(LOAN_SELECT + LOAN_FROM + " WHERE r.family_id=? ORDER BY COALESCE(r.updated_at,r.created_at) DESC,r.id DESC LIMIT ?", this::readLoan, familyId, limit)) {
+            var item = new LedgerReadResponses.Recent(); item.setKind("loan"); item.setProjectId(loan.getProjectId()); item.setId(loan.getId()); item.setTitle(loan.getName());
+            item.setDate(loan.getDate().toString()); item.setAmountCents(loan.getAmountCents()); item.setDirection(loan.getDirection());
+            item.setName(loan.getName()); item.setAppellation(loan.getAppellation()); item.setNote(loan.getNote());
+            item.setCreatedAt(loan.getCreatedAt()); item.setUpdatedAt(loan.getUpdatedAt()); records.add(item);
+        }
+        records.addAll(jdbc.query("SELECT h.id,h.type,h.amount_cents,h.note,h.project_id,h.created_at,h.updated_at,c.name AS category_name,"
+                + "COALESCE(h.record_date,CAST(m.month_value || '-01' AS DATE)) AS effective_date FROM relations.ledger_household_item h "
+                + "JOIN relations.ledger_household_month m ON m.id=h.month_id AND m.family_id=h.family_id "
+                + "LEFT JOIN relations.ledger_category c ON c.id=h.category_id AND c.family_id=h.family_id "
+                + "WHERE h.family_id=? AND h.gift_id IS NULL AND h.loan_id IS NULL ORDER BY COALESCE(h.updated_at,h.created_at) DESC,h.id DESC LIMIT ?", (row, index) -> {
+            var item = new LedgerReadResponses.Recent(); item.setKind("household"); item.setProjectId(row.getObject("project_id", Long.class)); item.setId(row.getLong("id")); item.setType(row.getString("type"));
+            item.setCategoryName(row.getString("category_name")); item.setTitle(row.getString("category_name")); item.setDate(row.getDate("effective_date").toString());
+            item.setAmountCents(row.getLong("amount_cents")); item.setNote(row.getString("note")); item.setCreatedAt(row.getTimestamp("created_at").toInstant());
+            item.setUpdatedAt(row.getTimestamp("updated_at").toInstant()); return item;
+        }, familyId, limit));
+        return records.stream().sorted(java.util.Comparator.<LedgerReadResponses.Recent, Instant>comparing(item -> item.getUpdatedAt() == null ? item.getCreatedAt() : item.getUpdatedAt()).reversed()
+                .thenComparing(LedgerReadResponses.Recent::getId, java.util.Comparator.reverseOrder())
+                .thenComparing(LedgerReadResponses.Recent::getKind)).limit(limit).toList();
+    }
+
+    private String historicalFamily(int userId, String familyId) {
+        FamilyModels.Family family = familyMapper.family(familyId);
+        if (family == null || !Integer.valueOf(userId).equals(family.getHiddenOwner())) throw new BusinessException(404, "历史家庭不存在");
+        return familyId;
+    }
+
+    public PageResult<LedgerReadResponses.Gift> historyGifts(int userId, LedgerQueries.History query) {
+        var records = new LedgerQueries.Records(); records.setPageNum(query.getPageNum()); records.setPageSize(query.getPageSize());
+        return giftListForFamily(historicalFamily(userId, query.getFamilyId()), records);
+    }
+    public PageResult<LedgerReadResponses.Loan> historyLoans(int userId, LedgerQueries.History query) {
+        var records = new LedgerQueries.Records(); records.setPageNum(query.getPageNum()); records.setPageSize(query.getPageSize());
+        return loanListForFamily(historicalFamily(userId, query.getFamilyId()), records);
+    }
+    public PageResult<LedgerReadResponses.Book> historyBooks(int userId, LedgerQueries.History query) {
+        return bookListForFamily(historicalFamily(userId, query.getFamilyId()), query);
+    }
+    public LedgerReadResponses.HouseholdPage historyHousehold(int userId, LedgerQueries.History query) {
+        var records = new LedgerQueries.Records(); records.setPageNum(query.getPageNum()); records.setPageSize(query.getPageSize());
+        return householdService.listForFamily(historicalFamily(userId, query.getFamilyId()), records);
+    }
+    public PageResult<FriendResponse> historyFriends(int userId, LedgerQueries.History query) {
+        String familyId = historicalFamily(userId, query.getFamilyId());
+        var page = friendMapper.selectPage(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<FriendEntity>(query.getPageNum(), query.getPageSize()),
+                new LambdaQueryWrapper<FriendEntity>().eq(FriendEntity::getFamilyId, familyId).orderByDesc(FriendEntity::getCreatedAt).orderByDesc(FriendEntity::getId));
+        return new PageResult<>(page.getRecords().stream().map(this::friend).toList(), page.getTotal(), query.getPageNum(), query.getPageSize());
+    }
+
+    private LedgerReadResponses.Book readBook(java.sql.ResultSet row, int index) throws java.sql.SQLException {
+        var item = new LedgerReadResponses.Book(); item.setId(row.getLong("id")); item.setName(row.getString("name"));
+        item.setDate(row.getObject("date", java.time.LocalDate.class)); item.setNote(row.getString("note"));
+        item.setRecordCount(row.getLong("record_count")); item.setReceivedCents(row.getLong("received_cents")); return item;
+    }
+
+    private LedgerReadResponses.Gift readGift(java.sql.ResultSet row, int index) throws java.sql.SQLException {
+        var item = new LedgerReadResponses.Gift();
+        item.setDirection(row.getString("direction"));
+        item.setName(row.getString("name"));
+        item.setAppellation(row.getString("appellation"));
+        item.setNote(row.getString("note"));
+        item.setCreatedBy(row.getString("created_by"));
+        item.setCreatedByName(row.getString("created_by_name"));
+        item.setProjectName(row.getString("project_name"));
+        item.setEventType(row.getString("event_type"));
+        item.setBookName(row.getString("book_name"));
+        item.setId(row.getObject("id", Long.class));
+        item.setAmountCents(row.getObject("amount_cents", Long.class));
+        item.setFriendId(row.getObject("friend_id", Long.class));
+        item.setBookId(row.getObject("book_id", Long.class));
+        item.setProjectId(row.getObject("project_id", Long.class));
+        item.setDate(row.getObject("date", java.time.LocalDate.class));
+        item.setCreatedAt(row.getTimestamp("created_at").toInstant()); item.setUpdatedAt(row.getTimestamp("updated_at").toInstant());
+        return item;
+    }
+
+    private LedgerReadResponses.Loan readLoan(java.sql.ResultSet row, int index) throws java.sql.SQLException {
+        var item = new LedgerReadResponses.Loan();
+        item.setDirection(row.getString("direction"));
+        item.setName(row.getString("name"));
+        item.setAppellation(row.getString("appellation"));
+        item.setNote(row.getString("note"));
+        item.setCreatedBy(row.getString("created_by"));
+        item.setCreatedByName(row.getString("created_by_name"));
+        item.setProjectName(row.getString("project_name"));
+        item.setId(row.getObject("id", Long.class));
+        item.setAmountCents(row.getObject("amount_cents", Long.class));
+        item.setFriendId(row.getObject("friend_id", Long.class));
+        item.setProjectId(row.getObject("resolved_project_id", Long.class));
+        item.setDate(row.getObject("date", java.time.LocalDate.class));
+        item.setCreatedAt(row.getTimestamp("created_at").toInstant()); item.setUpdatedAt(row.getTimestamp("updated_at").toInstant());
+        return item;
+    }
 
     /** 返回当前家庭的账簿、人情和亲友。 */
     @Transactional

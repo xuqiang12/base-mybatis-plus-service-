@@ -35,7 +35,7 @@ public class MoneyService {
 
     @Transactional
     public LedgerResponses.MoneySummary summary(int userId) {
-        return familySummary(lockFamily(userId));
+        return familySummary(readFamily(userId));
     }
 
     @Transactional
@@ -294,62 +294,64 @@ public class MoneyService {
         return summary;
     }
 
+    public java.util.List<LedgerResponses.MoneyProject> projects(int userId) {
+        return projectBalances(readFamily(userId), null);
+    }
+
+    public LedgerResponses.MoneyProject project(int userId, long id) {
+        var rows = projectBalances(readFamily(userId), id);
+        if (rows.isEmpty()) throw new BusinessException(404, "资金项目不存在");
+        return rows.getFirst();
+    }
+
+    /** 同一聚合供详情、列表、资金总览和写入余额校验复用；流水只在数据库中求和。 */
+    private java.util.List<LedgerResponses.MoneyProject> projectBalances(String familyId, Long id) {
+        String sql = "WITH targets AS (SELECT * FROM relations.ledger_money_project WHERE family_id=?"
+                + (id == null ? "" : " AND id=?") + "),cash AS (SELECT id FROM relations.ledger_money_project WHERE family_id=? AND cash_key='cash'), "
+                + "deltas AS ("
+                + "SELECT project_id,SUM(CASE WHEN type='expense' THEN -amount_cents ELSE amount_cents END) AS amount "
+                + "FROM relations.ledger_household_item WHERE family_id=? AND (type IN ('income','expense') OR (type='saving' AND saving_transfer=TRUE)) AND project_id IN (SELECT id FROM targets) GROUP BY project_id "
+                + "UNION ALL SELECT (SELECT id FROM cash),-SUM(amount_cents) FROM relations.ledger_household_item WHERE family_id=? AND type='saving' AND saving_transfer=TRUE AND (SELECT id FROM cash) IN (SELECT id FROM targets) "
+                + "UNION ALL SELECT from_project_id,-SUM(amount_cents) FROM relations.ledger_money_transfer WHERE family_id=? AND from_project_id IN (SELECT id FROM targets) GROUP BY from_project_id "
+                + "UNION ALL SELECT to_project_id,SUM(amount_cents) FROM relations.ledger_money_transfer WHERE family_id=? AND to_project_id IN (SELECT id FROM targets) GROUP BY to_project_id "
+                + "UNION ALL SELECT project_id,SUM(amount_cents) FROM relations.ledger_money_adjustment WHERE family_id=? AND project_id IN (SELECT id FROM targets) GROUP BY project_id "
+                + "UNION ALL SELECT COALESCE(project_id,(SELECT id FROM cash)),SUM(CASE WHEN direction IN ('lend','pay') THEN -amount_cents ELSE amount_cents END) "
+                + "FROM relations.ledger_loan WHERE family_id=? AND COALESCE(project_id,(SELECT id FROM cash)) IN (SELECT id FROM targets) GROUP BY project_id), "
+                + "totals AS (SELECT project_id,SUM(amount) AS amount FROM deltas GROUP BY project_id) "
+                + "SELECT p.id,p.type,p.name,p.note,p.cash_key,p.initial_balance_cents+COALESCE(t.amount,0) AS balance "
+                + "FROM targets p LEFT JOIN totals t ON t.project_id=p.id";
+        var args = new java.util.ArrayList<Object>(); args.add(familyId);
+        if (id != null) args.add(id);
+        args.addAll(java.util.Collections.nCopies(7, familyId));
+        sql += " ORDER BY CASE WHEN p.cash_key='cash' THEN 0 ELSE 1 END,p.id";
+        return jdbc.query(sql, (row, index) -> {
+            var project = new LedgerResponses.MoneyProject(); project.setId(row.getLong("id"));
+            project.setType("cash".equals(row.getString("cash_key")) ? "cash" : row.getString("type"));
+            project.setName(row.getString("name")); project.setNote(row.getString("note")); project.setBalanceCents(row.getLong("balance"));
+            return project;
+        }, args.toArray());
+    }
+
     private LedgerResponses.MoneySummary familySummary(String familyId) {
-        var projects = jdbc.query("SELECT id,type,name,note,cash_key,initial_balance_cents FROM relations.ledger_money_project WHERE family_id=? "
-                        + "ORDER BY CASE WHEN cash_key='cash' THEN 0 ELSE 1 END, id",
-                (row, index) -> {
-                    var project = new LedgerResponses.MoneyProject();
-                    project.setId(row.getLong("id"));
-                    project.setType("cash".equals(row.getString("cash_key")) ? "cash" : row.getString("type"));
-                    project.setName(row.getString("name"));
-                    project.setNote(row.getString("note"));
-                    project.setBalanceCents(row.getLong("initial_balance_cents"));
-                    return project;
-                }, familyId);
-        var byId = projects.stream().collect(java.util.stream.Collectors.toMap(LedgerResponses.MoneyProject::getId, item -> item));
+        var projects = projectBalances(familyId, null);
         var cash = projects.stream().filter(project -> "cash".equals(project.getType())).findFirst().orElseThrow();
-        // 新存款在现金与目标项目之间转移，旧存款仅保留报表统计。
-        for (var item : jdbc.queryForList("SELECT project_id,type,amount_cents FROM relations.ledger_household_item WHERE family_id=? "
-                + "AND (type IN ('income','expense') OR (type='saving' AND saving_transfer=TRUE))", familyId)) {
-            long amount = ((Number) item.get("amount_cents")).longValue();
-            if ("expense".equals(item.get("type"))) amount = -amount;
-            if ("saving".equals(item.get("type"))) cash.setBalanceCents(cash.getBalanceCents() - amount);
-            var project = byId.get(((Number) item.get("project_id")).longValue());
-            project.setBalanceCents(project.getBalanceCents() + amount);
-        }
-        for (var item : jdbc.queryForList("SELECT from_project_id,to_project_id,amount_cents FROM relations.ledger_money_transfer WHERE family_id=?", familyId)) {
-            long amount = ((Number) item.get("amount_cents")).longValue();
-            var from = byId.get(((Number) item.get("from_project_id")).longValue());
-            var to = byId.get(((Number) item.get("to_project_id")).longValue());
-            from.setBalanceCents(from.getBalanceCents() - amount);
-            to.setBalanceCents(to.getBalanceCents() + amount);
-        }
-        for (var item : jdbc.queryForList("SELECT project_id,amount_cents FROM relations.ledger_money_adjustment WHERE family_id=?", familyId)) {
-            var project = byId.get(((Number) item.get("project_id")).longValue());
-            project.setBalanceCents(project.getBalanceCents() + ((Number) item.get("amount_cents")).longValue());
-        }
-        long lent = 0;
-        long debt = 0;
-        for (var item : jdbc.queryForList("SELECT direction,amount_cents,project_id FROM relations.ledger_loan WHERE family_id=?", familyId)) {
-            long amount = ((Number) item.get("amount_cents")).longValue();
-            var project = item.get("project_id") == null ? cash : byId.get(((Number) item.get("project_id")).longValue());
-            switch ((String) item.get("direction")) {
-                case "lend" -> { lent += amount; project.setBalanceCents(project.getBalanceCents() - amount); }
-                case "receive" -> { lent -= amount; project.setBalanceCents(project.getBalanceCents() + amount); }
-                case "borrow" -> { debt += amount; project.setBalanceCents(project.getBalanceCents() + amount); }
-                case "pay" -> { debt -= amount; project.setBalanceCents(project.getBalanceCents() - amount); }
-            }
-        }
+        var loans = jdbc.queryForMap("SELECT COALESCE(SUM(CASE WHEN direction='lend' THEN amount_cents WHEN direction='receive' THEN -amount_cents ELSE 0 END),0) AS lent,"
+                + "COALESCE(SUM(CASE WHEN direction='borrow' THEN amount_cents WHEN direction='pay' THEN -amount_cents ELSE 0 END),0) AS debt "
+                + "FROM relations.ledger_loan WHERE family_id=?", familyId);
+        long lent = ((Number) loans.get("lent")).longValue();
+        long debt = ((Number) loans.get("debt")).longValue();
         long held = projects.stream().mapToLong(LedgerResponses.MoneyProject::getBalanceCents).sum();
         var result = new LedgerResponses.MoneySummary();
-        result.setCashCents(cash.getBalanceCents());
-        result.setHeldCents(held);
-        result.setLentCents(lent);
-        result.setDebtCents(debt);
-        result.setTotalCents(held + lent - debt);
-        result.setSavingsCents(held - cash.getBalanceCents() + lent - debt);
-        result.setProjects(projects);
+        result.setCashCents(cash.getBalanceCents()); result.setHeldCents(held); result.setLentCents(lent); result.setDebtCents(debt);
+        result.setTotalCents(held + lent - debt); result.setSavingsCents(held - cash.getBalanceCents() + lent - debt); result.setProjects(projects);
         return result;
+    }
+
+    private String readFamily(int userId) {
+        String familyId = familyMapper.currentFamily(userId);
+        FamilyModels.Family family = familyId == null ? null : familyMapper.family(familyId);
+        if (family == null || family.getHiddenOwner() != null) throw new BusinessException(409, "家庭已变化，请刷新后重试");
+        return familyId;
     }
 
     private String lockFamily(int userId) {

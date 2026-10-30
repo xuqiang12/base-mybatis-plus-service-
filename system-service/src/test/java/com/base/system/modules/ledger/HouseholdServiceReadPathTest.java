@@ -31,7 +31,7 @@ class HouseholdServiceReadPathTest {
         when(items.selectList(any())).thenReturn(List.of());
         when(money.projectTypes("family-1")).thenReturn(Map.of());
 
-        HouseholdService service = new HouseholdService(categories, months, items, families, money);
+        HouseholdService service = new HouseholdService(categories, months, items, families, money, mock(org.springframework.jdbc.core.JdbcTemplate.class));
 
         HouseholdService.Snapshot snapshot = service.snapshot("family-1");
 
