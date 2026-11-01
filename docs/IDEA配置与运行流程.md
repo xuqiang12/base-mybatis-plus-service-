@@ -150,4 +150,4 @@ mvn.cmd -s .mvn/settings.xml clean verify
 & "$env:JAVA_HOME\bin\java.exe" -jar .\system-service\target\system-service-0.0.1-SNAPSHOT-exec.jar
 ```
 
-数据库和密钥参数见运行说明；使用本机文件时在 JAR 后加上 `--spring.profiles.active=local --spring.config.additional-location=file:F:/公司项目/gitee/base-mybatis-plus-service/system-service/src/main/resources/application-local.yml`。只访问 8080 的 `/health`。终端运行时使用 `Ctrl+C` 停止；环境变量只影响当前终端，不改变系统默认 JDK。
+数据库和密钥参数见运行说明；使用本机文件时，从项目根目录运行，并在 JAR 后加上 `--spring.profiles.active=local --spring.config.additional-location=file:./system-service/src/main/resources/application-local.yml`。只访问 8080 的 `/health`。终端运行时使用 `Ctrl+C` 停止；环境变量只影响当前终端，不改变系统默认 JDK。

@@ -1,19 +1,22 @@
 # base-mybatis-plus-service：按业务模块组织的单服务基础工程
 
-当前有三个 Maven 模块，其中两个是公共类库、一个是独立运行的 Spring Boot 服务。只需启动 `SystemApplication`，默认端口 8000。
+当前有四个 Maven 模块：两个公共类库、一个独立生意业务模块、一个 Spring Boot 启动服务。只需启动 `SystemApplication`，默认端口 8000。
 
 | 模块 | 独立启动 | 职责 |
 | --- | --- | --- |
 | [base-common](base-common/README.md) | 否 | 统一返回、分页结构、校验、异常、时间和请求日志 |
 | [base-security](base-security/README.md) | 否 | 公钥校验 Token、当前身份、接口权限检查、统一安全错误 |
+| [business-service](business-service/README.md) | 否 | 按账号独立归属的客户及未结款查询；不依赖家庭模块 |
 | [system-service](system-service/README.md) | 是，默认 8000 | 登录、用户、角色、菜单、权限及后续亲友业务 |
 
-职责速记：**common 管通用请求处理，security 管身份与权限检查，system 管账号和权限数据。** 三个模块各自目录里的 README 都有简短说明，可以随时查阅。
+职责速记：**common 管通用请求处理，security 管身份与权限检查，system 管账号与家庭业务，business 管生意业务。** 各模块目录的 README 有详细说明。
 
 ## 阅读导航
 
 - [目录与依赖](#目录与依赖)：哪些是类库，哪些是运行服务。
 - [数据库脚本](sql/README.md)：按发布版本集中查阅建表和改表 SQL。
+- [双账本业务隔离约定](docs/双账本业务隔离约定.md)：2026-10-31 确认，家庭与生意业务的表、接口、访问权限、代码和统计独立，后续需求统一遵守。
+- [生意记账已确认需求与 AI 开发交接](docs/生意记账已确认需求与AI开发交接.md)：2026-11-01 汇总业务规则、文字解析自动填单与人工确认需求、当前实现基线、待定项和接手说明。
 - [礼账后端接口与数据库规划](docs/Java后端接口与数据库规划.md)：早期接口规划；当前实现与验收以[礼账开发交付与验收报告](docs/礼账开发交付与验收报告.md)为准。
 - [技术和构建](#技术和构建)、[配置和启动](#配置和启动)：怎么构建、运行。
 - [登录与授权](#登录与授权)：单应用如何校验身份和权限。
@@ -26,7 +29,7 @@
 
 ```text
 base-mybatis-plus-service/
-├── pom.xml                          父工程，管理三个模块和依赖版本
+├── pom.xml                          父工程，管理四个模块和依赖版本
 ├── .mvn/settings.xml                项目 Maven 仓库配置
 ├── sql/                     集中维护 SQL，按发布版本分目录
 │   ├── README.md                    脚本用途、命名和执行说明
@@ -60,6 +63,7 @@ base-mybatis-plus-service/
 │       ├── PublicEndpointProperties.java
 │       ├── OpenApiConfig.java
 │       └── SecurityErrorHandler.java、SecurityExceptionHandler.java
+├── business-service/                独立生意模块，源码包 com.base.business
 ├── system-service/
 │   └── src/
 │       ├── main/
@@ -75,7 +79,7 @@ base-mybatis-plus-service/
 └── docs/                             设计、运行说明和学习记录
 ```
 
-依赖方向：`system-service → base-security → base-common`。只有 system 生成可执行运行包；公共模块通过显式 `@Import` 加载。
+依赖方向：`system-service → base-security → base-common`，`business-service → base-security → base-common`。只有 system 生成可执行运行包，运行时装配 business；business 不依赖 system 或家庭代码。生意源码位于 `business-service/src/main/java/com/base/business`，可用 `--business.enabled=false` 关闭生意接口及其业务 Bean。SQL 独立维护在 `sql/business`，历史迁移由启动程序统一保留。
 
 `base-common` 负责通用请求处理，不强制加载数据库或认证。`base-security` 通过 `CurrentUserProvider` 调用应用内的 `AccessService`，读取当前身份和权限，不再发起服务间 HTTP 查询。
 
@@ -203,7 +207,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 
 | 文件 | 用途 |
 | --- | --- |
-| `pom.xml` | 父工程，登记三个模块，统一 Java 21、Spring Boot 和 MyBatis-Plus 版本；自身不启动服务 |
+| `pom.xml` | 父工程，登记四个模块，统一 Java 21、Spring Boot 和 MyBatis-Plus 版本；自身不启动服务 |
 | `base-common/pom.xml` | Web、参数校验、Lombok、Swagger 和基础测试依赖，不含数据库、安全 starter |
 | `base-security/pom.xml` | 引用 common，加入 Spring Security 和 JWT 公钥校验 |
 | `system-service/pom.xml` | 引用 security，加入 MyBatis、PostgreSQL、Flyway、H2 测试及打包；登记根目录中归本服务执行的 SQL |

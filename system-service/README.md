@@ -4,6 +4,8 @@
 
 这是项目唯一独立运行的服务，默认端口 **8000**，启动入口是 `SystemApplication.java`。它引用 `base-security`，并通过它引入 `base-common`。
 
+生意业务放在独立的 [business-service](../business-service/README.md) Maven 模块，通过运行时依赖自动装配，不放在 `system-service/modules`。家庭代码不导入生意类。`--business.enabled=false` 可关闭生意接口并保留家庭功能；根目录 `sql/business` 的历史脚本继续随启动程序打包，不能通过删除迁移来停用功能。
+
 | 负责什么 | 例子 |
 | --- | --- |
 | 注册与登录 | 邮箱验证码注册并设置密码，邮箱或手机号加密码登录，签发 Token |

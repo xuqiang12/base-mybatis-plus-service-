@@ -21,6 +21,7 @@
     <modules>
         <module>base-common</module>
         <module>base-security</module>
+        <module>business-service</module>
         <module>system-service</module>
     </modules>
 

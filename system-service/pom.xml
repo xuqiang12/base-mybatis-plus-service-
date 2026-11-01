@@ -9,6 +9,13 @@
     </parent>
     <artifactId>system-service</artifactId>
     <dependencies>
+        <!-- 仅由启动模块装配；家庭业务不得调用生意模块的类。 -->
+        <dependency>
+            <groupId>com.base</groupId>
+            <artifactId>business-service</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>

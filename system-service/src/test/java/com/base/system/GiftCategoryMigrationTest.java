@@ -41,7 +41,7 @@ class GiftCategoryMigrationTest {
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
 
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(5);
         assertThat(jdbc.queryForList(preservedColumns)).isEqualTo(originalItems);
         assertThat(jdbc.queryForList("SELECT * FROM relations.ledger_gift ORDER BY id")).isEqualTo(originalGifts);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.ledger_household_item WHERE gift_id IS NOT NULL AND category_id IS NULL", Integer.class)).isEqualTo(2);

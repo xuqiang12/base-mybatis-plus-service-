@@ -1,6 +1,12 @@
 # 数据库脚本说明
 
-所有手写建表、改表和初始化 SQL 集中在这里，按发布版本分目录，不再按服务分目录。初始建表按表拆分，文件名使用简短英文，文件内容使用中文说明和数据库注释。
+所有手写建表、改表和初始化 SQL 集中在这里。既有账号及家庭脚本按发布版本分目录，生意脚本独立放在 `business/`。初始建表按表拆分，文件名使用简短英文，文件内容使用中文说明和数据库注释。
+
+2026-10-31 新增生意模块迁移：[V4_1__business_books_and_customers.sql](business/V4_1__business_books_and_customers.sql) 建独立生意账套、成员和客户；[V4_2__business_trade_settlement_read_model.sql](business/V4_2__business_trade_settlement_read_model.sql) 建客户未结款查询所需的买卖原单、明细、结算及分配关系。均位于 `business` schema，不引用家庭表。关闭或移除生意模块仍须保留这些脚本与既有 Flyway 历史，启动程序继续统一打包；不修改任何已执行的家庭迁移。本次仅在隔离 H2 测试库执行，未迁移真实 PostgreSQL。
+
+用户进一步确认一账号一本生意总账。新增 [V4_3__business_account_ownership](../system-service/src/main/java/db/system/V4_3__business_account_ownership.java) 增量迁移：按旧账套创建账号回填 `owner_id`，保留客户和原单 ID、成交与结算金额、结算分配及记录人，移除 `book_id`、`biz_book`、`biz_member`，改为账号范围唯一约束和复合外键。该 Java 迁移按元数据定位约束以兼容 PostgreSQL 与 H2，与 V3.9 同属启动程序的持久迁移基础设施，不调用业务 Service。旧 V4.1/V4.2 原文保留。仅在隔离测试库执行，未迁移真实数据库。
+
+新增 [V4_4__business_customer_deletion.sql](business/V4_4__business_customer_deletion.sql)：为生意客户增加 `deleted_at`，既有客户默认正常，删除时保留客户实体与历史业务记录。该迁移不改动家庭表；应用层同时校验应收和应付均结清。
 
 ```text
 sql/
