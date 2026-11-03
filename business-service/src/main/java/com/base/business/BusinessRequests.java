@@ -11,7 +11,6 @@ public final class BusinessRequests {
 
     @Getter @Setter
     public static class CustomerFields {
-        @NotBlank @Pattern(regexp = "farmer|merchant") private String type;
         @NotBlank @Size(max = 30) private String name;
         @Size(max = 30) @JsonSetter(nulls = Nulls.SKIP) private String appellation = "";
         @Size(max = 30) @JsonSetter(nulls = Nulls.SKIP) private String phone = "";
@@ -35,7 +34,6 @@ public final class BusinessRequests {
 
     @Getter @Setter
     public static class CustomerQuery {
-        @Pattern(regexp = "farmer|merchant") private String type;
         @Size(max = 60) private String keyword;
         @Min(1) private int pageNum = 1;
         @Min(1) @Max(100) private int pageSize = 20;

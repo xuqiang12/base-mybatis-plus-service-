@@ -10,7 +10,6 @@ public final class BusinessResponses {
     @Getter @Setter
     public static class Customer {
         private String id;
-        private String type;
         private String name;
         private String appellation;
         private String phone;

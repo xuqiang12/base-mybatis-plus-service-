@@ -30,7 +30,7 @@ public class BusinessCustomerService {
                     "SELECT deleted_at IS NOT NULL FROM business.biz_customer WHERE owner_id=? AND id=?",
                     Boolean.class, userId, Long.parseLong(old.getId()))))
                 throw new BusinessException(409, "该请求创建的客户已删除，请重新新增");
-            if (!old.getName().equals(request.getName().trim()) || !old.getType().equals(request.getType())
+            if (!old.getName().equals(request.getName().trim())
                     || !old.getAppellation().equals(request.getAppellation().trim())
                     || !old.getPhone().equals(request.getPhone().trim()) || !old.getRemark().equals(request.getRemark().trim()))
                 throw new BusinessException(409, "该创建请求已使用，请重新提交");
@@ -43,7 +43,7 @@ public class BusinessCustomerService {
                 VALUES (?,?,?,?,?,?,?,?)
                 """, new String[]{"id"});
             statement.setLong(1, userId);
-            statement.setString(2, request.getType());
+            statement.setString(2, "farmer");
             statement.setString(3, request.getName().trim());
             statement.setString(4, request.getAppellation().trim());
             statement.setString(5, request.getPhone().trim());
@@ -61,9 +61,9 @@ public class BusinessCustomerService {
         lockAccount(userId);
         ownedCustomer(userId, request.getId());
         jdbc.update("""
-                UPDATE business.biz_customer SET type=?,name=?,appellation=?,phone=?,remark=?,updated_at=CURRENT_TIMESTAMP
+                UPDATE business.biz_customer SET name=?,appellation=?,phone=?,remark=?,updated_at=CURRENT_TIMESTAMP
                 WHERE owner_id=? AND id=?
-                """, request.getType(), request.getName().trim(), request.getAppellation().trim(), request.getPhone().trim(),
+                """, request.getName().trim(), request.getAppellation().trim(), request.getPhone().trim(),
                 request.getRemark().trim(), userId, request.getId());
         return detail(userId, request.getId());
     }
@@ -85,6 +85,8 @@ public class BusinessCustomerService {
         var customer = detail(userId, id);
         if (!customer.isSettled())
             throw new BusinessException(409, "客户仍有未结清的应收或应付款，请结清后再删除");
+        if (jdbc.queryForObject("SELECT COUNT(*) FROM business.biz_grain_weighing WHERE owner_id=? AND customer_id=? AND trade_id IS NULL",Long.class,userId,id)>0)
+            throw new BusinessException(409, "客户仍有待计价粮食，请结账后再删除");
         // 仅隐藏档案，保留客户及其买卖、结算和分配记录。
         jdbc.update("UPDATE business.biz_customer SET deleted_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE owner_id=? AND id=?",
                 userId, id);
@@ -95,7 +97,6 @@ public class BusinessCustomerService {
         var args = new ArrayList<Object>();
         args.add(userId);
         String where = " WHERE owner_id=? AND deleted_at IS NULL";
-        if (query.getType() != null) { where += " AND type=?"; args.add(query.getType()); }
         if (query.getKeyword() != null && !query.getKeyword().isBlank()) {
             // POSITION 按普通文字包含匹配，搜索百分号和下划线也不会变成通配符。
             where += " AND (POSITION(? IN name)>0 OR POSITION(? IN appellation)>0)";
@@ -121,7 +122,7 @@ public class BusinessCustomerService {
 
     private BusinessResponses.Customer readCustomer(ResultSet r, int index) throws SQLException {
         var c = new BusinessResponses.Customer();
-        c.setId(r.getString("id")); c.setType(r.getString("type"));
+        c.setId(r.getString("id"));
         c.setName(r.getString("name")); c.setAppellation(r.getString("appellation"));
         c.setPhone(r.getString("phone")); c.setRemark(r.getString("remark"));
         c.setCreatedAt(r.getTimestamp("created_at").toInstant()); c.setUpdatedAt(r.getTimestamp("updated_at").toInstant());

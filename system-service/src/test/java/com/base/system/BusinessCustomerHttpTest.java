@@ -27,24 +27,24 @@ class BusinessCustomerHttpTest {
         assertThat(post("/business/book/create", Map.of("name", "多余账套", "requestId", "unused"), owner).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(get("/business/book/list", owner).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         String key = UUID.randomUUID().toString();
-        var request = Map.of("type", "farmer", "name", "张三", "appellation", "大叔", "requestId", key);
+        var request = Map.of("name", "张三", "appellation", "大叔", "requestId", key);
         JsonNode created = ok(post("/business/customer/create", request, owner));
         long customer = created.path("id").asLong();
         assertThat(created.has("bookId")).isFalse();
+        assertThat(created.has("type")).isFalse();
         assertThat(ok(post("/business/customer/create", request, owner)).path("id").asLong()).isEqualTo(customer);
-        assertThat(post("/business/customer/create", Map.of("type", "farmer", "name", "李四", "requestId", key), owner).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(post("/business/customer/create", Map.of("name", "李四", "requestId", key), owner).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         String list = "/business/customer/list";
-        assertThat(ok(get(list + "?type=farmer&keyword=大叔", owner)).path("total").asInt()).isEqualTo(1);
-        assertThat(ok(get(list + "?type=merchant", owner)).path("total").asInt()).isZero();
-        ok(post("/business/customer/create", Map.of("type", "merchant", "name", "化肥厂", "requestId", UUID.randomUUID().toString()), owner));
+        assertThat(ok(get(list + "?keyword=大叔", owner)).path("total").asInt()).isEqualTo(1);
+        ok(post("/business/customer/create", Map.of("name", "李四", "requestId", UUID.randomUUID().toString()), owner));
         assertThat(ok(get(list + "?pageSize=1&pageNum=2", owner)).path("list").size()).isEqualTo(1);
-        ok(post("/business/customer/update", Map.of("id", customer, "type", "farmer", "name", "张三改", "appellation", "叔叔"), owner));
+        ok(post("/business/customer/update", Map.of("id", customer, "name", "张三改", "appellation", "叔叔"), owner));
         String detail = "/business/customer/detail?id=" + customer;
         assertThat(ok(get(detail, owner)).path("name").asText()).isEqualTo("张三改");
         assertThat(get(detail, other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(ok(get(list, other)).path("total").asInt()).isZero();
-        assertThat(post("/business/customer/update", Map.of("id", customer, "type", "farmer", "name", "越权"), other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        JsonNode otherCustomer = ok(post("/business/customer/create", Map.of("type", "farmer", "name", "李四", "requestId", key, "bookId", "999", "ownerId", "999"), other));
+        assertThat(post("/business/customer/update", Map.of("id", customer, "name", "越权"), other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        JsonNode otherCustomer = ok(post("/business/customer/create", Map.of("name", "李四", "requestId", key, "bookId", "999", "ownerId", "999"), other));
         assertThat(get("/business/customer/detail?id=" + otherCustomer.path("id").asText(), owner).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(ok(get(list + "?bookId=999&ownerId=999", other)).path("total").asInt()).isEqualTo(1);
         assertThat(get(list, null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -57,14 +57,25 @@ class BusinessCustomerHttpTest {
         assertThat(get(detail, other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(get(list + "?pageNum=0", owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(get("/business/customer/detail?id=0", owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/business/customer/create", Map.of("type", "invalid", "name", " ", "requestId", "bad"), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/business/customer/create", Map.of("name", " ", "requestId", "bad"), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ok(get("/friend/list", owner)).path("total").asInt()).isZero();
+    }
+
+    @Test
+    void historicalCustomerProfilesRemainVisibleAndEditableWithoutTypeSelection() {
+        String token = account();
+        long id = ok(post("/business/customer/create", Map.of("name", "历史客户", "requestId", UUID.randomUUID().toString()), token)).path("id").asLong();
+        jdbc.update("UPDATE business.biz_customer SET type='merchant' WHERE id=?", id);
+        assertThat(ok(get("/business/customer/list", token)).path("list").get(0).path("id").asLong()).isEqualTo(id);
+        assertThat(ok(get("/business/customer/detail?id=" + id, token)).has("type")).isFalse();
+        ok(post("/business/customer/update", Map.of("id", id, "name", "历史客户改"), token));
+        assertThat(jdbc.queryForObject("SELECT type FROM business.biz_customer WHERE id=?", String.class, id)).isEqualTo("merchant");
     }
 
     @Test
     void outstandingTracksPartialPaymentsOffsetsAndSeasons() {
         String token = account();
-        long customer = ok(post("/business/customer/create", Map.of("type", "farmer", "name", "张三", "requestId", "zhang"), token)).path("id").asLong();
+        long customer = ok(post("/business/customer/create", Map.of("name", "张三", "requestId", "zhang"), token)).path("id").asLong();
         int user = ok(get("/auth/userInfo", token)).path("userInfo").path("id").asInt();
         long fertilizer = trade(user, customer, "sale", "fertilizer", 100000, "2026春");
         long grain = trade(user, customer, "purchase", "grain", 120000, "2026夏");
@@ -90,7 +101,7 @@ class BusinessCustomerHttpTest {
         long voidItem = trade(user, customer, "sale", "fertilizer", 90000, "2026秋");
         jdbc.update("UPDATE business.biz_trade SET status='void' WHERE id=(SELECT trade_id FROM business.biz_trade_item WHERE id=?)", voidItem);
         assertBalances(token, customer, 60000, -60000, false);
-        long otherCustomer = ok(post("/business/customer/create", Map.of("type", "farmer", "name", "李四", "requestId", "li"), token)).path("id").asLong();
+        long otherCustomer = ok(post("/business/customer/create", Map.of("name", "李四", "requestId", "li"), token)).path("id").asLong();
         long otherSettlement = settlement(user, otherCustomer, "receive", 1);
         assertThatThrownBy(() -> allocate(user, otherCustomer, otherSettlement, fertilizer, 1))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
@@ -100,44 +111,43 @@ class BusinessCustomerHttpTest {
     void customerCrudValidatesFieldsAndDeleteIsOwnedAndIdempotent() {
         String owner = account(), other = account();
         String key = UUID.randomUUID().toString();
-        var request = Map.of("type", "merchant", "name", " 化肥厂 ", "appellation", " 经理 ",
+        var request = Map.of("name", " 张三 ", "appellation", " 大叔 ",
                 "phone", " 010-12345678 ", "remark", " 老客户 ", "requestId", key);
         JsonNode created = ok(post("/business/customer/create", request, owner));
         long id = created.path("id").asLong();
-        assertThat(created.path("name").asText()).isEqualTo("化肥厂");
-        assertThat(created.path("appellation").asText()).isEqualTo("经理");
+        assertThat(created.path("name").asText()).isEqualTo("张三");
+        assertThat(created.path("appellation").asText()).isEqualTo("大叔");
         assertThat(created.path("phone").asText()).isEqualTo("010-12345678");
         assertThat(created.path("remark").asText()).isEqualTo("老客户");
         assertThat(post("/business/customer/delete", Map.of("id", id), other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(post("/business/customer/delete", Map.of("id", id), null).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(post("/business/customer/delete", Map.of("id", 0), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(post("/business/customer/delete", Map.of(), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/business/customer/update", Map.of("id", id, "type", "farmer", "name", " "), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/business/customer/update", Map.of("id", id, "type", "farmer", "name", "长".repeat(31)), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/business/customer/update", Map.of("id", id, "type", "farmer", "name", "张三", "remark", "长".repeat(201)), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        JsonNode updated = ok(post("/business/customer/update", Map.of("id", id, "type", "farmer", "name", " 张三 "), owner));
+        assertThat(post("/business/customer/update", Map.of("id", id, "name", " "), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/business/customer/update", Map.of("id", id, "name", "长".repeat(31)), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/business/customer/update", Map.of("id", id, "name", "张三", "remark", "长".repeat(201)), owner).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode updated = ok(post("/business/customer/update", Map.of("id", id, "name", " 张三 "), owner));
         assertThat(updated.path("name").asText()).isEqualTo("张三");
-        assertThat(updated.path("type").asText()).isEqualTo("farmer");
+        assertThat(updated.has("type")).isFalse();
         assertThat(updated.path("appellation").asText()).isEmpty();
         assertThat(updated.path("phone").asText()).isEmpty();
         assertThat(updated.path("remark").asText()).isEmpty();
-        assertThat(ok(get("/business/customer/list?type=merchant", owner)).path("total").asInt()).isZero();
         ok(post("/business/customer/delete", Map.of("id", id), owner));
         ok(post("/business/customer/delete", Map.of("id", id), owner));
         assertThat(post("/business/customer/delete", Map.of("id", id), other).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(ok(get("/business/customer/list", owner)).path("total").asInt()).isZero();
         assertThat(get("/business/customer/detail?id=" + id, owner).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(post("/business/customer/update", Map.of("id", id, "type", "farmer", "name", "恢复"), owner).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post("/business/customer/update", Map.of("id", id, "name", "恢复"), owner).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(post("/business/customer/create", request, owner).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM business.biz_customer WHERE id=?", Boolean.class, id)).isTrue();
-        assertThat(ok(post("/business/customer/create", Map.of("type", "farmer", "name", "张三", "requestId", UUID.randomUUID().toString()), owner)).path("id").asLong()).isNotEqualTo(id);
+        assertThat(ok(post("/business/customer/create", Map.of("name", "张三", "requestId", UUID.randomUUID().toString()), owner)).path("id").asLong()).isNotEqualTo(id);
         assertThat(ok(get("/friend/list", owner)).path("total").asInt()).isZero();
     }
 
     @Test
     void deleteRequiresBothDirectionsSettledAndPreservesAllHistory() {
         String token = account();
-        long customer = ok(post("/business/customer/create", Map.of("type", "farmer", "name", "结算客户", "requestId", "delete-history"), token)).path("id").asLong();
+        long customer = ok(post("/business/customer/create", Map.of("name", "结算客户", "requestId", "delete-history"), token)).path("id").asLong();
         int user = ok(get("/auth/userInfo", token)).path("userInfo").path("id").asInt();
         long sale = trade(user, customer, "sale", "fertilizer", 60000, "2026春");
         assertThat(post("/business/customer/delete", Map.of("id", customer), token).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);

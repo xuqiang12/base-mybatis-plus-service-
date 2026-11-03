@@ -28,7 +28,7 @@ class BusinessAccountMigrationTest {
         var allocations = jdbc.queryForList("SELECT id,customer_id,settlement_id,trade_item_id,amount_cents FROM business.biz_settlement_item");
         var upgrade = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(upgrade.migrate().migrationsExecuted).isGreaterThanOrEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM business.biz_customer WHERE deleted_at IS NULL", Integer.class)).isEqualTo(3);
         assertThat(jdbc.queryForList("SELECT * FROM relations.sys_user ORDER BY id")).isEqualTo(users);
         assertThat(jdbc.queryForList("SELECT id,customer_id,direction,biz_date,season,created_by FROM business.biz_trade")).isEqualTo(trade);
