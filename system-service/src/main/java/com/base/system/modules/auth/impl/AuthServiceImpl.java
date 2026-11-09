@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.base.common.exception.BusinessException;
 import com.base.security.LoginUser;
 import com.base.system.modules.auth.AccessService;
+import com.base.system.modules.auth.AccountCancellationService;
 import com.base.system.modules.auth.AuthService;
 import com.base.system.modules.auth.dto.LoginRequest;
 import com.base.system.modules.auth.dto.LoginResponse;
@@ -53,6 +54,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Autowired
     private FamilyService familyService;
+
+    @Autowired
+    private AccountCancellationService accountCancellationService;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -132,5 +136,10 @@ public class AuthServiceImpl implements AuthService {
         response.setPermissions(user.permissions());
         response.setMenus(menuService.userMenus(user));
         return response;
+    }
+
+    @Override
+    public void cancelAccount(LoginUser user, String password) {
+        accountCancellationService.cancel(user, password);
     }
 }

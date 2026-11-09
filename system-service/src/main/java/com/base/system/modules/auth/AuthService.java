@@ -25,4 +25,12 @@ public interface AuthService {
      * @return 当前用户信息
      */
     UserInfoResponse getUserInfo(LoginUser user);
+
+    /**
+     * 注销当前登录账号并处理其家庭与账簿数据。
+     *
+     * @param user 当前登录身份
+     * @param password 当前密码
+     */
+    void cancelAccount(LoginUser user, String password);
 }

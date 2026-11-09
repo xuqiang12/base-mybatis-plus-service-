@@ -3,6 +3,7 @@ package com.base.system.modules.auth;
 import com.base.common.result.ApiResponse;
 import com.base.security.LoginUser;
 import com.base.system.modules.auth.dto.EmailRegisterRequest;
+import com.base.system.modules.auth.dto.CancelAccountRequest;
 import com.base.system.modules.auth.dto.LoginRequest;
 import com.base.system.modules.auth.dto.LoginResponse;
 import com.base.system.modules.auth.dto.SendEmailCodeRequest;
@@ -59,5 +60,13 @@ public class AuthController {
     public ApiResponse<UserInfoResponse> getUserInfo(@AuthenticationPrincipal LoginUser user) {
         UserInfoResponse result = authService.getUserInfo(user);
         return ApiResponse.success(result);
+    }
+
+    @Operation(summary = "注销当前账号")
+    @PostMapping("/account/cancel")
+    public ApiResponse<String> cancelAccount(@AuthenticationPrincipal LoginUser user,
+                                              @Valid @RequestBody CancelAccountRequest request) {
+        authService.cancelAccount(user, request.getPassword());
+        return ApiResponse.success("账号注销成功");
     }
 }
