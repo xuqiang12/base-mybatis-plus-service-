@@ -1,0 +1,74 @@
+[
+  {
+    "code": "gl:system:user:list",
+    "name": "查询用户"
+  },
+  {
+    "code": "gl:system:user:detail",
+    "name": "用户详情"
+  },
+  {
+    "code": "gl:system:user:add",
+    "name": "新增用户"
+  },
+  {
+    "code": "gl:system:user:edit",
+    "name": "修改用户"
+  },
+  {
+    "code": "gl:system:user:delete",
+    "name": "删除用户"
+  },
+  {
+    "code": "gl:system:role:list",
+    "name": "查询角色"
+  },
+  {
+    "code": "gl:system:role:add",
+    "name": "新增角色"
+  },
+  {
+    "code": "gl:system:role:edit",
+    "name": "修改角色"
+  },
+  {
+    "code": "gl:system:role:delete",
+    "name": "删除角色"
+  },
+  {
+    "code": "gl:system:role:permission",
+    "name": "角色授权"
+  },
+  {
+    "code": "gl:system:menu:list",
+    "name": "查询菜单"
+  },
+  {
+    "code": "gl:system:menu:add",
+    "name": "新增菜单"
+  },
+  {
+    "code": "gl:system:menu:edit",
+    "name": "修改菜单"
+  },
+  {
+    "code": "gl:system:menu:delete",
+    "name": "删除菜单"
+  },
+  {
+    "code": "gl:system:permission:list",
+    "name": "查询权限"
+  },
+  {
+    "code": "gl:system:permission:add",
+    "name": "新增权限"
+  },
+  {
+    "code": "gl:system:permission:edit",
+    "name": "修改权限"
+  },
+  {
+    "code": "gl:system:permission:delete",
+    "name": "删除权限"
+  }
+]

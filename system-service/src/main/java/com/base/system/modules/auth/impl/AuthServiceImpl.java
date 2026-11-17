@@ -66,11 +66,10 @@ public class AuthServiceImpl implements AuthService {
                 .eq(UserEntity::getIsDeleted, false);
         if (account.contains("@")) {
             query.eq(UserEntity::getEmail, account);
-        } else {
-            if (!account.matches("^1[3-9]\\d{9}$")) {
-                throw new BusinessException(401, "账号或密码错误");
-            }
+        } else if (account.matches("^1[3-9]\\d{9}$")) {
             query.eq(UserEntity::getPhone, account);
+        } else {
+            query.eq(UserEntity::getUsername, account);
         }
         List<UserEntity> matchingUsers = userMapper.selectList(query);
 

@@ -57,11 +57,11 @@ class SingleServiceHttpTest {
         assertThat(get("/single/who", "forged-token").getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
         String admin = login("root@example.test", "test-admin-password");
-        assertThat(post("/permission/create", Map.of("code", "relations:record:list", "name", "查询往来"), admin)
+        assertThat(post("/permission/create", Map.of("code", "gl:relations:record:list", "name", "查询往来"), admin)
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(post("/role/create", Map.of("name", "reader"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         int role = jdbc.queryForObject("SELECT id FROM relations.sys_role WHERE name='reader'", Integer.class);
-        int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='relations:record:list'", Integer.class);
+        int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='gl:relations:record:list'", Integer.class);
         assertThat(post("/user/create", Map.of("username", "reader", "email", "reader@example.test",
                 "phone", "13800000001", "password", "test-user-password", "roleIds", List.of(role)), admin)
                 .getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -127,7 +127,7 @@ class SingleServiceHttpTest {
         @GetMapping("/single/who")
         LoginUser who(@AuthenticationPrincipal LoginUser user) { return user; }
         @GetMapping("/single/records")
-        @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:relations:record:list')")
+        @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:relations:record:list')")
         List<String> records() { return List.of("record"); }
     }
 }

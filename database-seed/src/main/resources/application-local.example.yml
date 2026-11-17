@@ -1,0 +1,13 @@
+# 可选：复制为本目录 application-local.yml，填入数据库和首次管理员信息。
+# 该私有文件被 Git 忽略且不打包；运行时通过 spring.config.additional-location 显式加载。
+# 现有 SeedApplication-local 运行项复用 system-service 的本机配置，无需另复制。
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/gift_ledger
+    username: relations
+    password: ""
+app:
+  seed-admin:
+    username: administrator
+    email: ""
+    password: "" # 首次创建时必须提供；初始化成功后可清空，不会重置已改密码

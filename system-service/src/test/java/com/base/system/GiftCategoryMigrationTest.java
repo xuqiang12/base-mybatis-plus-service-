@@ -39,7 +39,7 @@ class GiftCategoryMigrationTest {
         var originalItems = jdbc.queryForList(preservedColumns);
         var originalGifts = jdbc.queryForList("SELECT * FROM relations.ledger_gift ORDER BY id");
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
-                .locations("classpath:db/system").load();
+                .locations("classpath:db/system").target("3.17").load();
 
         assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForList(preservedColumns)).isEqualTo(originalItems);

@@ -21,6 +21,7 @@ public class MenuEntity {
     private String icon;
     private Integer sort;
     private String type;
+    private Boolean hidden;
     private Instant createdAt;
     private Instant updatedAt;
 }

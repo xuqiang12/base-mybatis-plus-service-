@@ -1,0 +1,34 @@
+[
+  {
+    "code": "administrator",
+    "name": "Administrator",
+    "menuPaths": [
+      "/home/index",
+      "/system",
+      "/system/user/index",
+      "/system/role/index",
+      "/system/menu/index",
+      "/about/index"
+    ],
+    "permissionCodes": [
+      "gl:system:user:list",
+      "gl:system:user:detail",
+      "gl:system:user:add",
+      "gl:system:user:edit",
+      "gl:system:user:delete",
+      "gl:system:role:list",
+      "gl:system:role:add",
+      "gl:system:role:edit",
+      "gl:system:role:delete",
+      "gl:system:role:permission",
+      "gl:system:menu:list",
+      "gl:system:menu:add",
+      "gl:system:menu:edit",
+      "gl:system:menu:delete",
+      "gl:system:permission:list",
+      "gl:system:permission:add",
+      "gl:system:permission:edit",
+      "gl:system:permission:delete"
+    ]
+  }
+]

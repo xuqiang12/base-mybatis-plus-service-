@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: database-seed
+  main:
+    web-application-type: none
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/gift_ledger}
+    username: ${DB_USERNAME:relations}
+    password: ${DB_PASSWORD:}
+  flyway:
+    default-schema: relations
+    schemas: relations
+    locations: classpath:db/system
+app:
+  seed-admin:
+    username: ${SEED_ADMIN_USERNAME:administrator}
+    email: ${SEED_ADMIN_EMAIL:}
+    password: ${SEED_ADMIN_PASSWORD:}

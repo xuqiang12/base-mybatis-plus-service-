@@ -1,0 +1,86 @@
+[
+  {
+    "menuPath": "/system/user/index",
+    "permissionCode": "gl:system:user:list",
+    "name": "查询用户",
+    "sort": 1
+  },
+  {
+    "menuPath": "/system/user/index",
+    "permissionCode": "gl:system:user:detail",
+    "name": "用户详情",
+    "sort": 2
+  },
+  {
+    "menuPath": "/system/user/index",
+    "permissionCode": "gl:system:user:add",
+    "name": "新增用户",
+    "sort": 3
+  },
+  {
+    "menuPath": "/system/user/index",
+    "permissionCode": "gl:system:user:edit",
+    "name": "修改用户",
+    "sort": 4
+  },
+  {
+    "menuPath": "/system/user/index",
+    "permissionCode": "gl:system:user:delete",
+    "name": "删除用户",
+    "sort": 5
+  },
+  {
+    "menuPath": "/system/role/index",
+    "permissionCode": "gl:system:role:list",
+    "name": "查询角色",
+    "sort": 6
+  },
+  {
+    "menuPath": "/system/role/index",
+    "permissionCode": "gl:system:role:add",
+    "name": "新增角色",
+    "sort": 7
+  },
+  {
+    "menuPath": "/system/role/index",
+    "permissionCode": "gl:system:role:edit",
+    "name": "修改角色",
+    "sort": 8
+  },
+  {
+    "menuPath": "/system/role/index",
+    "permissionCode": "gl:system:role:delete",
+    "name": "删除角色",
+    "sort": 9
+  },
+  {
+    "menuPath": "/system/role/index",
+    "permissionCode": "gl:system:role:permission",
+    "name": "角色授权",
+    "sort": 10
+  },
+  {
+    "menuPath": "/system/menu/index",
+    "permissionCode": "gl:system:menu:list",
+    "name": "查询菜单",
+    "sort": 11
+  },
+  {
+    "menuPath": "/system/menu/index",
+    "permissionCode": "gl:system:menu:add",
+    "name": "新增菜单",
+    "sort": 12
+  },
+  {
+    "menuPath": "/system/menu/index",
+    "permissionCode": "gl:system:menu:edit",
+    "name": "修改菜单",
+    "sort": 13
+  },
+  {
+    "menuPath": "/system/menu/index",
+    "permissionCode": "gl:system:menu:delete",
+    "name": "删除菜单",
+    "sort": 14
+  }
+]

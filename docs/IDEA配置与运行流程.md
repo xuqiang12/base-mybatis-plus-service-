@@ -101,6 +101,8 @@
 
 父工程、`base-common` 和 `base-security` 不提供运行入口。旧的 `RelationsApplication-local` 运行项已移除，`JWT_SECRET` 已不使用。
 
+需要初始化默认数据时：Maven 面板重新加载项目，在顶部运行配置选择 **SeedApplication-local**，点击绿色运行按钮，看到“数据库初始化完成”和进程退出即可。JSON 与执行代码在 `database-seed`，详细说明见 [系统初始化与新库使用](系统初始化与新库使用.md)。正常启动后端不会执行 Seed。
+
 ## 八、以后每天启动
 
 已经配置好的同一项目，通常只需要：

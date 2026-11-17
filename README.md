@@ -1,14 +1,17 @@
 # base-mybatis-plus-service：按业务模块组织的单服务基础工程
 
-当前有三个 Maven 模块，其中两个是公共类库、一个是独立运行的 Spring Boot 服务。只需启动 `SystemApplication`，默认端口 8000。
+当前有四个 Maven 模块：两个公共类库、一个业务服务，以及一个独立数据库初始化程序。日常启动 `SystemApplication`，默认端口 8000；需要初始化时单独运行 `SeedApplication`，完成后自动退出。
+
+新库 `gift_ledger` 的系统初始化使用独立 `database-seed` 模块，权限前缀统一为 `gl`，支持管理员用户名登录。初始化内容、重复执行规则和命令见 [系统初始化与新库使用](docs/系统初始化与新库使用.md)。
 
 | 模块 | 独立启动 | 职责 |
 | --- | --- | --- |
 | [base-common](base-common/README.md) | 否 | 统一返回、分页结构、校验、异常、时间和请求日志 |
 | [base-security](base-security/README.md) | 否 | 公钥校验 Token、当前身份、接口权限检查、统一安全错误 |
 | [system-service](system-service/README.md) | 是，默认 8000 | 登录、用户、角色、菜单、权限及后续亲友业务 |
+| [database-seed](database-seed/README.md) | 是，运行后退出 | JSON 默认数据、初始化逻辑、初始化历史 |
 
-职责速记：**common 管通用请求处理，security 管身份与权限检查，system 管账号和权限数据。** 三个模块各自目录里的 README 都有简短说明，可以随时查阅。
+职责速记：**common 管通用请求处理，security 管身份与权限检查，system 管业务，seed 管初始化。** 四个模块各自目录里的 README 都有简短说明，可以随时查阅。
 
 ## 阅读导航
 
@@ -26,7 +29,7 @@
 
 ```text
 base-mybatis-plus-service/
-├── pom.xml                          父工程，管理三个模块和依赖版本
+├── pom.xml                          父工程，管理四个模块和依赖版本
 ├── .mvn/settings.xml                项目 Maven 仓库配置
 ├── sql/                     集中维护 SQL，按发布版本分目录
 │   ├── README.md                    脚本用途、命名和执行说明
@@ -66,16 +69,20 @@ base-mybatis-plus-service/
 │       │   ├── java/com/base/system/
 │       │   │   ├── SystemApplication.java
 │       │   │   ├── config/           MyBatis 和数据库错误处理
-│       │   │   ├── security/         私钥签发、BCrypt、管理员初始化
+│       │   │   ├── security/         私钥签发、BCrypt
 │       │   │   └── modules/          auth、user、role、menu、permission、friend
 │       │   └── resources/
 │       │       ├── application.yml
 │       │       └── application-local.example.yml
 │       └── test/                     身份管理与单服务 HTTP 集成测试
+├── database-seed/                    独立初始化模块，详见模块 README
+│   └── src/main/
+│       ├── java/com/base/seed/        运行入口、JSON 读取、事务与写入
+│       └── resources/seeds/system-service/  roles、permissions、menus、buttons JSON
 └── docs/                             设计、运行说明和学习记录
 ```
 
-依赖方向：`system-service → base-security → base-common`。只有 system 生成可执行运行包；公共模块通过显式 `@Import` 加载。
+依赖方向：`database-seed → system-service → base-security → base-common`。system 和 seed 分别生成可执行包。Seed 依赖 system 的普通 JAR 复用 Flyway 迁移，仅扫描自身包，不启动业务组件或 HTTP 服务；业务服务不依赖 Seed。公共模块通过显式 `@Import` 加载。
 
 `base-common` 负责通用请求处理，不强制加载数据库或认证。`base-security` 通过 `CurrentUserProvider` 调用应用内的 `AccessService`，读取当前身份和权限，不再发起服务间 HTTP 查询。
 
@@ -109,7 +116,7 @@ mvn.cmd -s .mvn/settings.xml clean verify
 & "$env:JAVA_HOME\bin\java.exe" -jar .\system-service\target\system-service-0.0.1-SNAPSHOT-exec.jar
 ```
 
-`-exec.jar` 是可执行包；无 `-exec` 的普通 JAR 用于模块依赖，不能用 `java -jar` 启动。IDEA 只运行 `SystemApplication-local`，该运行项会显式加载现有本机配置，详见 [IDEA配置与运行流程](docs/IDEA配置与运行流程.md)。
+`-exec.jar` 是可执行包；无 `-exec` 的普通 JAR 用于模块依赖，不能用 `java -jar` 启动。IDEA 日常运行 `SystemApplication-local`；需要初始化时运行 `SeedApplication-local`。这些运行项会显式加载现有本机配置，详见 [IDEA配置与运行流程](docs/IDEA配置与运行流程.md)。
 
 健康检查：
 
@@ -152,8 +159,8 @@ Invoke-RestMethod 'http://localhost:8000/health'
 | 异常处理器 | `src/common/filters/all-exception.filter.ts`，以及 main.ts 注册的 PrismaClientExceptionFilter | 都把异常转成响应；当前按通用、安全、数据库职责分布到不同模块 |
 | SecurityConfig、方法权限检查 | JWT Guard、PermissionsGuard、RolesGuard，及 app.module.ts 中的注册 | 都处理身份认证和接口权限 |
 | `*Properties` 配置类 | `common/configs/config.ts`、`config.interface.ts`、ConfigService、`.env` | Java 将一组配置绑定为带类型的对象；Node 同样有配置读取和类型定义 |
+| SeedApplication、JSON 默认数据 | Prisma seed | 都是按需独立执行的初始化入口 |
 | MybatisConfig、Flyway SQL | PrismaService、schema、migrations | ORM 和迁移工具不同，目标都是访问数据库、维护表结构 |
-| BootstrapAdminRunner | Prisma 用户 seed | 都能初始化账户；当前选择按显式配置在启动时初始化首位管理员 |
 
 Node 对照用于理解职责，不代表两个项目实现完全相同，也不表示本工程运行时依赖 Node 项目。
 
@@ -166,7 +173,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | RSA 公私钥分离、签发与验签配置分开 | 同一应用使用私钥签发、公钥验签 | 否，是当前认证方案 |
 | 独立 permission 管理模块 | 提供权限字典的独立增删改查接口 | 否，是功能范围；原 Node 已有权限模型、seed 和按钮绑定，但未发现同样独立的管理模块 |
 | 最后一位管理员保护、基础权限码保护 | 避免管理能力被误删或全部撤销 | 否，是具体业务规则 |
-| 启动时初始化首位管理员 | 方便首次部署创建管理入口 | 否，也可以采用手动 seed |
+| 独立 database-seed 初始化 | 需要时运行一次，默认数据与业务代码分开维护 | 否，是当前选择的初始化方式 |
 | 各类设计、实施和学习文档 | 记录决策、操作流程和历史问题 | 否，不参与程序运行 |
 
 原 Node 的 JWT Guard 校验后把 Token payload 放到 `request.user`，权限 Guard 使用 Token 内的权限。`AuthService.userInfo()` 会查询数据库，但普通业务请求并不会因此全部读取最新授权。当前 Java 的本地 AccessService，才是“每次认证取最新授权”的来源。
@@ -203,15 +210,16 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 
 | 文件 | 用途 |
 | --- | --- |
-| `pom.xml` | 父工程，登记三个模块，统一 Java 21、Spring Boot 和 MyBatis-Plus 版本；自身不启动服务 |
+| `pom.xml` | 父工程，登记四个模块，统一 Java 21、Spring Boot 和 MyBatis-Plus 版本；自身不启动服务 |
 | `base-common/pom.xml` | Web、参数校验、Lombok、Swagger 和基础测试依赖，不含数据库、安全 starter |
 | `base-security/pom.xml` | 引用 common，加入 Spring Security 和 JWT 公钥校验 |
 | `system-service/pom.xml` | 引用 security，加入 MyBatis、PostgreSQL、Flyway、H2 测试及打包；登记根目录中归本服务执行的 SQL |
+| `database-seed/pom.xml` | 独立初始化程序，默认数据与执行逻辑集中在该模块，运行后退出 |
 | `.mvn/settings.xml` | 项目专用 Maven 仓库设置；使用默认公共仓库，避免沿用其他项目的私服设置；使用时须在 IDEA 或命令中明确指定 |
 | `.gitignore` | 告诉 Git 忽略编译产物、IDE 文件、日志和本机私有配置 |
 | `system-service/src/main/java/com/base/system/SystemApplication.java` | 统一管理服务启动入口，扫描自身管理代码并导入安全模块 |
-| `system-service/src/main/resources/application.yml` | 8000、数据库、Flyway、公私钥、管理员、文档与 MyBatis 配置 |
-| `system-service/src/main/resources/application-local.example.yml` | 管理服务本机模板：数据库、密钥、管理员配置 |
+| `system-service/src/main/resources/application.yml` | 8000、数据库、Flyway、公私钥、文档与 MyBatis 配置 |
+| `system-service/src/main/resources/application-local.example.yml` | 管理服务本机模板：数据库、密钥和邮箱配置 |
 | `system-service/src/test/resources/application-test.yml` | H2 内存数据库和测试 RSA 密钥路径，不是生产配置 |
 
 ### 公共基础代码
@@ -257,8 +265,6 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `config/DatabaseExceptionHandler.java` | 数据库约束错误返回统一 400 |
 | `security/JwtSigningProperties.java` | 私钥、issuer、有效期配置；有效期须为正 |
 | `security/JwtSigningConfig.java` | 校验公私钥匹配、签发 RS256 Token、提供 BCrypt |
-| `security/BootstrapAdminProperties.java` | 读取首位管理员初始化所需的用户名、邮箱、手机和密码配置 |
-| `security/BootstrapAdminRunner.java` | 启动后按显式配置初始化管理员；未配置邮箱时跳过，用户表已有记录时不再新增 |
 | `modules/auth/AuthController.java` | 接收发码、注册、登录和当前用户信息请求，调用业务接口并包装响应 |
 | `modules/auth/AuthService.java` | 登录与当前用户信息业务接口 |
 | `modules/auth/AccessService.java` | 当前身份与授权业务接口，继承安全模块的 CurrentUserProvider |
@@ -291,7 +297,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | 文件 | 用途 |
 | --- | --- |
 | `UserController.java` | 用户注册、分页查询、详情、创建、修改、删除接口，入口处进行参数和操作权限校验 |
-| `UserService.java` | 实现用户筛选、密码散列、角色分配、软删除、管理员初始化及最后一位管理员保护；相关写操作使用事务 |
+| `UserService.java` | 实现用户筛选、密码散列、角色分配、软删除及最后一位管理员保护；相关写操作使用事务 |
 | `dto/UserRequests.java` | 集中定义创建、更新、公开注册、列表查询的入参；列表默认第 1 页、每页 10 条 |
 | `dto/UserResponse.java` | 用户返回结构，含角色信息和时间，不返回密码散列 |
 | `entity/UserEntity.java` | 映射 `relations.sys_user` 表：用户名、邮箱、手机、密码、头像、管理员和软删除标记等 |
@@ -361,7 +367,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `sql/1.0.1/V2_3__user_nickname.sql` | 增加用户昵称字段，允许重复，历史账号可为空 |
 | `system-service/src/test/java/com/base/system/FlywayMigrationTest.java` | 隔离数据库迁移测试：验证执行顺序、全部表和字段的注释、初始权限及重复执行 |
 | `base-common/src/test/java/com/base/foundation/FoundationHttpTest.java` | 4 项 HTTP 测试，检查统一返回、时间格式、字符串包装、参数校验、404/500 错误；测试中的 /probe 接口不会出现在正式服务 |
-| `system-service/src/test/java/com/base/system/IdentityHttpTest.java` | 18 项 HTTP 集成测试，覆盖登录、用户/角色/菜单/权限管理、授权变化、回滚、Token 失效、管理员初始化及并发保护 |
+| `system-service/src/test/java/com/base/system/IdentityHttpTest.java` | HTTP 集成测试，覆盖登录、用户/角色/菜单/权限管理、授权变化、回滚、Token 失效及并发保护 |
 | `system-service/src/test/java/com/base/system/SingleServiceHttpTest.java` | 2 项单服务 HTTP 测试，覆盖本地身份、授权和撤销、用户删除以及移除远程身份接口 |
 
 8 张应用表的关系：
@@ -402,7 +408,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 | `docs/统一账号多服务设计.md` | 历史多服务设计，已由单服务合并方案替代 |
 | `docs/Java后端接口与数据库规划.md` | 由前端迁入的历史规划；当前实施与验收以《礼账完整开发计划》和《礼账开发交付与验收报告》为准 |
 | `docs/多服务拆分实施计划.md` | 历史四模块拆分记录 |
-| `docs/单服务合并实施计划.md` | 当前三个模块、唯一入口和本地鉴权的合并设计、步骤及验收 |
+| `docs/单服务合并实施计划.md` | 历史单服务合并与本地鉴权设计、步骤及验收 |
 | `docs/第一阶段实施计划.md` | 早期只搭建骨架和健康检查的计划及当时验证记录 |
 | `docs/Java基础搭建实施计划.md` | 用户权限基础搭建的范围、实现顺序与验证记录 |
 | `docs/基础规范与运行说明.md` | 当前基础功能的配置、数据库准备、启动要求和完整接口清单 |
@@ -442,7 +448,7 @@ Node 对照用于理解职责，不代表两个项目实现完全相同，也不
 
 理解主链路后，再阅读安全和模块加载代码：
 
-1. `SystemApplication`：唯一入口如何导入公共模块。
+1. `SystemApplication`：业务入口如何导入公共模块。
 2. `HealthController` → `ResponseAdvice` → `ApiResponse`：简单请求如何返回。
 3. `UserController` → `UserRequests` → `UserService.list()` → `UserMapper` / `UserEntity` → `UserResponse`：一个用户查询如何完成。
 4. `AuthController`、`AuthService`：如何登录、校验密码和签发 Token。

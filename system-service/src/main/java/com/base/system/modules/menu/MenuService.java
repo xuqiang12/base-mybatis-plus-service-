@@ -40,8 +40,35 @@ public class MenuService {
     // 用户只取得被角色授权的菜单，按钮只返回实际拥有的权限码。
     public List<MenuNode> userMenus(LoginUser user) {
         var visible = new HashSet<>(access.findVisibleMenuIds(user.id()));
-        var selected = user.isSuperAdmin() ? list() : list().stream().filter(menu -> visible.contains(menu.getId())).toList();
-        return buildTree(selected, access.findButtons(), new HashSet<>(user.permissions()));
+        var allMenus = list();
+        // 子页面授权补齐导航祖先，不修改角色原有菜单或操作授权。
+        if (!user.isSuperAdmin()) {
+            var byId = new HashMap<Integer, MenuEntity>();
+            allMenus.forEach(menu -> byId.put(menu.getId(), menu));
+            for (int id : new HashSet<>(visible)) {
+                var menu = byId.get(id);
+                while (menu != null && menu.getParentId() != null && visible.add(menu.getParentId())) {
+                    menu = byId.get(menu.getParentId());
+                }
+            }
+        }
+        var selected = user.isSuperAdmin() ? allMenus : allMenus.stream().filter(menu -> visible.contains(menu.getId())).toList();
+        var tree = buildTree(selected, access.findButtons(), new HashSet<>(user.permissions()));
+        if (!user.isSuperAdmin()) {
+            var granted = new HashSet<>(access.findVisibleMenuIds(user.id()));
+            tree = navigationAncestors(tree, granted);
+        }
+        return tree;
+    }
+
+    // 页面也可能作为父级；补齐导航时不得顺带开放这个父页面。
+    private List<MenuNode> navigationAncestors(List<MenuNode> nodes, Set<Integer> granted) {
+        return nodes.stream().map(node -> {
+            boolean ancestorOnly = !granted.contains(node.id());
+            return new MenuNode(node.id(), node.parentId(), node.name(), node.path(), ancestorOnly ? "Layout" : node.component(),
+                    node.icon(), ancestorOnly ? "DIRECTORY" : node.type(), node.sort(), node.hidden(),
+                    ancestorOnly ? List.of() : node.buttons(), navigationAncestors(node.children(), granted));
+        }).toList();
     }
 
     public String create(MenuRequests.Create request) {
@@ -50,6 +77,7 @@ public class MenuService {
         menu.setParentId(request.parentId()); menu.setName(request.name()); menu.setPath(request.path());
         menu.setComponent(request.component()); menu.setIcon(request.icon());
         menu.setSort(request.sort() == null ? 0 : request.sort()); menu.setType(request.type().name());
+        menu.setHidden(Boolean.TRUE.equals(request.hidden()));
         menu.setCreatedAt(Instant.now()); menu.setUpdatedAt(menu.getCreatedAt());
         menus.insert(menu);
         return "菜单新增成功";
@@ -78,6 +106,7 @@ public class MenuService {
         if (request.getIcon() != null) { menu.setIcon(request.getIcon()); }
         if (request.getSort() != null) { menu.setSort(request.getSort()); }
         if (request.getType() != null) { menu.setType(request.getType().name()); }
+        if (request.getHidden() != null) { menu.setHidden(request.getHidden()); }
         menu.setUpdatedAt(Instant.now()); menus.updateById(menu);
         return "菜单修改成功";
     }
@@ -107,6 +136,10 @@ public class MenuService {
     @Transactional
     public String updateButton(MenuRequests.UpdateButton request) {
         var button = requiredButton(request.id()); requiredMenu(request.menuId());
+        var currentPermission = permissions.selectById(button.getPermissionId());
+        if (!currentPermission.getCode().equals(request.permissionCode())) {
+            throw new BusinessException(400, "权限码创建后不能修改，请保留原权限码");
+        }
         var permission = findOrCreatePermission(request.permissionCode(), request.name());
         button.setMenuId(request.menuId()); button.setPermissionId(permission.getId()); button.setName(request.name());
         if (request.sort() != null) { button.setSort(request.sort()); }
@@ -147,7 +180,7 @@ public class MenuService {
             List<?> exposedButtons = allowed == null ? menuButtons : menuButtons.stream()
                     .map(ButtonResponse::permissionCode).filter(allowed::contains).toList();
             nodes.put(menu.getId(), new MenuNode(menu.getId(), menu.getParentId(), menu.getName(), menu.getPath(),
-                    menu.getComponent(), menu.getIcon(), menu.getType(), menu.getSort(), exposedButtons, new ArrayList<>()));
+                    menu.getComponent(), menu.getIcon(), menu.getType(), menu.getSort(), Boolean.TRUE.equals(menu.getHidden()), exposedButtons, new ArrayList<>()));
         }
         List<MenuNode> roots = new ArrayList<>();
         for (var node : nodes.values()) {

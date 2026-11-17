@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="SeedApplication-local" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="database-seed" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.base.seed.SeedApplication" />
+    <option name="PROGRAM_PARAMETERS" value="--spring.config.additional-location=file:$PROJECT_DIR$/system-service/src/main/resources/application-local.yml" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <method v="2"><option name="Make" enabled="true" /></method>
+  </configuration>
+</component>

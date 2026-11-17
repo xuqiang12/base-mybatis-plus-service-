@@ -25,19 +25,19 @@ public class UserController {
         return service.bindPhone(request, user);
     }
     @GetMapping("/list")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:list')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:system:user:list')")
     public PageResult<UserResponse> list(@Valid @ModelAttribute UserRequests.ListQuery query) { return service.list(query); }
     @GetMapping("/detail")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:detail')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:system:user:detail')")
     public UserResponse detail(@RequestParam @Positive Integer id) { return service.detail(id); }
     @PostMapping("/create")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:add')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:system:user:add')")
     public String create(@Valid @RequestBody UserRequests.Create request, @AuthenticationPrincipal LoginUser user) { return service.create(request, user); }
     @PostMapping("/update")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:edit')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:system:user:edit')")
     public String update(@Valid @RequestBody UserRequests.Update request, @AuthenticationPrincipal LoginUser user) { return service.update(request, user); }
     @PostMapping("/delete")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:user:delete')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:system:user:delete')")
     public String delete(@Valid @RequestBody IdRequest request, @AuthenticationPrincipal LoginUser user) { return service.delete(request.id(), user); }
     @PostMapping("/register")
     @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")

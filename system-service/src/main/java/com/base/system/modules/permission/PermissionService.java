@@ -28,15 +28,15 @@ public class PermissionService {
     }
     public String update(PermissionRequests.Update request) {
         var value = required(request.id());
-        if (value.getCode().startsWith("system:") && !value.getCode().equals(request.code())) {
-            throw new BusinessException(400, "基础权限码不能改名");
+        if (!value.getCode().equals(request.code())) {
+            throw new BusinessException(400, "权限码创建后不能修改");
         }
         value.setCode(request.code()); value.setName(request.name()); permissions.updateById(value);
         return "权限修改成功";
     }
     public String delete(int id) {
         var value = required(id);
-        if (value.getCode().startsWith("system:")) { throw new BusinessException(400, "基础权限不能删除"); }
+        if (value.getCode().startsWith("gl:system:")) { throw new BusinessException(400, "基础权限不能删除"); }
         if (access.getPermissionRoleCount(id) > 0 || buttons.selectCount(new LambdaQueryWrapper<MenuButtonEntity>()
                 .eq(MenuButtonEntity::getPermissionId, id)) > 0) { throw new BusinessException(400, "权限已被使用，不能删除"); }
         permissions.deleteById(id);

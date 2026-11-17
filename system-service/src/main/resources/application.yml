@@ -44,11 +44,6 @@ app:
   email-code:
     from: ${MAIL_FROM:${MAIL_USERNAME:}}
     code-secret: ${EMAIL_CODE_SECRET:}
-  bootstrap-admin:
-    username: ${BOOTSTRAP_ADMIN_USERNAME:}
-    email: ${BOOTSTRAP_ADMIN_EMAIL:}
-    password: ${BOOTSTRAP_ADMIN_PASSWORD:}
-    phone: ${BOOTSTRAP_ADMIN_PHONE:}
 springdoc:
   api-docs:
     enabled: ${API_DOCS_ENABLED:false}

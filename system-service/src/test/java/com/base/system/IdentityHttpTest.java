@@ -21,10 +21,6 @@ import com.base.system.modules.auth.AccessService;
 import com.base.system.modules.user.UserService;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import com.base.system.security.BootstrapAdminProperties;
-import com.base.system.security.BootstrapAdminRunner;
-import jakarta.validation.Validator;
-import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import java.time.Instant;
@@ -38,14 +34,68 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(classes = SystemApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 class IdentityHttpTest {
+    @Test
+    void onePermissionCanBeReusedAcrossPagesButCannotRepeatWithinOnePage() {
+        String admin = login("root@example.test", "test-admin-password");
+        int first = createMenu(admin, "列表", null);
+        int second = createMenu(admin, "详情", null);
+        String code = "gl:system:user:edit";
+        assertThat(post("/menu/button/create", Map.of("menuId", first, "permissionCode", code, "name", "编辑"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/menu/button/create", Map.of("menuId", second, "permissionCode", code, "name", "编辑"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/menu/button/create", Map.of("menuId", first, "permissionCode", code, "name", "重复"), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(jdbc.queryForObject("SELECT COUNT(DISTINCT permission_id) FROM relations.sys_menu_button", Integer.class)).isEqualTo(1);
+    }
+
     @Autowired private TestRestTemplate http;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private UserService users;
     @Autowired private AccessService access;
     @Autowired private PlatformTransactionManager transactions;
-    @Autowired private Validator validator;
     @Autowired private JwtEncoder jwt;
     @Autowired private MenuService menus;
+
+    @Test
+    void ordinaryEditorsCannotAssignRolesOrGrantPermissions() {
+        String admin = login("root@example.test", "test-admin-password");
+        int editor = createRole(admin, "limited-editor");
+        int privileged = createRole(admin, "privileged");
+        var ids = jdbc.queryForList("SELECT id FROM relations.sys_permission WHERE code IN ('gl:system:user:add','gl:system:user:edit','gl:system:role:permission')", Integer.class);
+        grant(admin, editor, List.of(), ids);
+        int user = createUser(admin, "limited", "limited@example.test", "13800000030", List.of(editor));
+        String token = login("limited@example.test", "test-user-password");
+        assertThat(post("/user/update", Map.of("id", user, "roleIds", List.of(privileged)), token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(post("/user/create", Map.of("username", "injected", "email", "injected@example.test", "phone", "13800000031", "password", "test-user-password", "roleIds", List.of(privileged)), token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(post("/role/permission", Map.of("id", editor, "menuIds", List.of(), "permissionIds", List.of()), token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(post("/user/update", Map.of("id", user, "username", "limited-updated"), token).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void childPageGrantIncludesAncestorDirectoryAndPreservesHiddenFlag() {
+        String admin = login("root@example.test", "test-admin-password");
+        int parent = createMenu(admin, "目录", null);
+        int child = createMenu(admin, "详情", parent);
+        assertThat(post("/menu/update", Map.of("id", child, "hidden", true), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        int role = createRole(admin, "child-only");
+        grant(admin, role, List.of(child), List.of());
+        createUser(admin, "child-only", "child@example.test", "13800000032", List.of(role));
+        var tree = get("/auth/userInfo", login("child@example.test", "test-user-password")).getBody().path("data").path("menus");
+        assertThat(tree.get(0).path("id").asInt()).isEqualTo(parent);
+        assertThat(tree.get(0).path("type").asText()).isEqualTo("DIRECTORY");
+        assertThat(tree.get(0).path("component").asText()).isEqualTo("Layout");
+        assertThat(tree.get(0).path("children").get(0).path("id").asInt()).isEqualTo(child);
+        assertThat(tree.get(0).path("children").get(0).path("hidden").asBoolean()).isTrue();
+        assertThat(get("/role/detail?id=" + role, admin).getBody().path("data").path("menuIds").size()).isEqualTo(1);
+    }
+
+    @Test
+    void editingMenuButtonCannotReplaceItsPermissionCode() {
+        String admin = login("root@example.test", "test-admin-password");
+        int menu = createMenu(admin, "用户", null);
+        assertThat(post("/menu/button/create", Map.of("menuId", menu, "permissionCode", "gl:system:user:list", "name", "查看"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        int button = jdbc.queryForObject("SELECT id FROM relations.sys_menu_button WHERE menu_id=?", Integer.class, menu);
+        assertThat(post("/menu/button/update", Map.of("id", button, "menuId", menu, "permissionCode", "gl:system:user:edit", "name", "修改"), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/menu/button/create", Map.of("menuId", menu, "permissionCode", "edit", "name", "错误权限"), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
 
     @BeforeEach
     void resetUsersAndGrants() {
@@ -54,7 +104,7 @@ class IdentityHttpTest {
         }
         jdbc.update("UPDATE relations.sys_menu SET parent_id = NULL");
         jdbc.update("DELETE FROM relations.sys_menu");
-        jdbc.update("DELETE FROM relations.sys_permission WHERE code NOT LIKE 'system:%'");
+        jdbc.update("DELETE FROM relations.sys_permission WHERE code NOT LIKE 'gl:system:%'");
         jdbc.update("INSERT INTO relations.sys_user(username,email,phone,password,is_super_admin) VALUES (?,?,?,?,TRUE)",
                 "root", "root@example.test", "13800000000", new BCryptPasswordEncoder().encode("test-admin-password"));
     }
@@ -65,6 +115,15 @@ class IdentityHttpTest {
         String header = new String(java.util.Base64.getUrlDecoder().decode(token.split("\\.")[0]),
                 java.nio.charset.StandardCharsets.UTF_8);
         assertThat(header).contains("RS256");
+    }
+
+    @Test
+    void loginAcceptsUsernameAndKeepsPhoneAndEmailLogin() {
+        assertThat(login("root", "test-admin-password")).isNotBlank();
+        assertThat(login("13800000000", "test-admin-password")).isNotBlank();
+        assertThat(login("root@example.test", "test-admin-password")).isNotBlank();
+        assertThat(post("/auth/login", Map.of("account", "root", "password", "wrong-password"), null).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
@@ -167,8 +226,8 @@ class IdentityHttpTest {
         String admin = login("root@example.test", "test-admin-password");
         int roleId = createRole(admin, "reader");
         int menuId = createMenu(admin, "用户页", null);
-        int permissionId = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='system:user:list'", Integer.class);
-        post("/menu/button/create", Map.of("menuId", menuId, "permissionCode", "system:user:list", "name", "查询"), admin);
+        int permissionId = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='gl:system:user:list'", Integer.class);
+        post("/menu/button/create", Map.of("menuId", menuId, "permissionCode", "gl:system:user:list", "name", "查询"), admin);
         grant(admin, roleId, List.of(menuId), List.of());
         createUser(admin, "reader", "reader@example.test", "13800000002", List.of(roleId));
         String token = login("reader@example.test", "test-user-password");
@@ -178,7 +237,7 @@ class IdentityHttpTest {
         assertThat(get("/user/list", token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         grant(admin, roleId, List.of(menuId), List.of(permissionId));
         assertThat(get("/user/list", token).getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(get("/auth/userInfo", token).getBody().path("data").path("menus").get(0).path("buttons").get(0).asText()).isEqualTo("system:user:list");
+        assertThat(get("/auth/userInfo", token).getBody().path("data").path("menus").get(0).path("buttons").get(0).asText()).isEqualTo("gl:system:user:list");
         grant(admin, roleId, List.of(menuId), List.of());
         assertThat(get("/user/list", token).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
@@ -188,7 +247,7 @@ class IdentityHttpTest {
         String admin = login("root@example.test", "test-admin-password");
         int roleId = createRole(admin, "operator");
         int menuId = createMenu(admin, "配置", null);
-        int permissionId = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='system:user:list'", Integer.class);
+        int permissionId = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='gl:system:user:list'", Integer.class);
         grant(admin, roleId, List.of(menuId), List.of(permissionId));
         var failed = post("/role/permission", Map.of("id", roleId, "menuIds", List.of(menuId), "permissionIds", List.of(999999)), admin);
         assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -223,7 +282,9 @@ class IdentityHttpTest {
     @Test
     void permissionCodeCannotImpersonateSuperAdministrator() {
         String admin = login("root@example.test", "test-admin-password");
-        assertThat(post("/permission/create", Map.of("code", "ROLE_SUPER_ADMIN", "name", "普通权限"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/permission/create", Map.of("code", "ROLE_SUPER_ADMIN", "name", "伪造管理员"), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // 模拟历史库中不符合新格式的权限，仍不能冒充框架的管理员 authority。
+        jdbc.update("INSERT INTO relations.sys_permission(code,name) VALUES ('ROLE_SUPER_ADMIN','旧权限')");
         int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='ROLE_SUPER_ADMIN'", Integer.class);
         int role = createRole(admin, "ordinary");
         grant(admin, role, List.of(), List.of(permission));
@@ -237,9 +298,9 @@ class IdentityHttpTest {
     void deletingButtonPreservesIndependentRolePermissions() {
         String admin = login("root@example.test", "test-admin-password");
         int menu = createMenu(admin, "用户管理", null);
-        assertThat(post("/menu/button/create", Map.of("menuId", menu, "permissionCode", "system:user:list", "name", "查询"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/menu/button/create", Map.of("menuId", menu, "permissionCode", "gl:system:user:list", "name", "查询"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         int button = jdbc.queryForObject("SELECT id FROM relations.sys_menu_button WHERE menu_id=?", Integer.class, menu);
-        int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='system:user:list'", Integer.class);
+        int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='gl:system:user:list'", Integer.class);
         int role = createRole(admin, "api-reader");
         grant(admin, role, List.of(), List.of(permission));
         createUser(admin, "api-reader", "api-reader@example.test", "13800000007", List.of(role));
@@ -329,11 +390,11 @@ class IdentityHttpTest {
         move.put("id", child); move.put("parentId", null);
         assertThat(post("/menu/update", move, admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(jdbc.queryForObject("SELECT parent_id FROM relations.sys_menu WHERE id=?", Integer.class, child)).isNull();
-        assertThat(post("/menu/button/create", Map.of("menuId", child, "permissionCode", "relations:item:add", "name", "新增"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/menu/button/create", Map.of("menuId", child, "permissionCode", "gl:relations:item:add", "name", "新增"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         int button = jdbc.queryForObject("SELECT id FROM relations.sys_menu_button WHERE menu_id=?", Integer.class, child);
-        assertThat(post("/menu/button/update", Map.of("id", button, "menuId", parent, "permissionCode", "relations:item:edit", "name", "修改"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/menu/button/update", Map.of("id", button, "menuId", parent, "permissionCode", "gl:relations:item:add", "name", "修改"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         var updated = get("/menu/button/list?menuId=" + parent, admin).getBody().path("data").get(0);
-        assertThat(updated.path("permissionCode").asText()).isEqualTo("relations:item:edit");
+        assertThat(updated.path("permissionCode").asText()).isEqualTo("gl:relations:item:add");
         assertThat(post("/menu/delete", Map.of("id", parent), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(post("/menu/button/delete", Map.of("id", button), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(post("/menu/delete", Map.of("id", parent), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -344,9 +405,10 @@ class IdentityHttpTest {
     @Test
     void permissionCrudRejectsReferencedDeletionAndProtectsBuiltInCodes() {
         String admin = login("root@example.test", "test-admin-password");
-        assertThat(post("/permission/create", Map.of("code", "relations:read", "name", "读取"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
-        int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='relations:read'", Integer.class);
-        assertThat(post("/permission/update", Map.of("id", permission, "code", "relations:view", "name", "查看"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(post("/permission/create", Map.of("code", "gl:relations:item:read", "name", "读取"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+        int permission = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='gl:relations:item:read'", Integer.class);
+        assertThat(post("/permission/update", Map.of("id", permission, "code", "gl:relations:item:view", "name", "查看"), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(post("/permission/update", Map.of("id", permission, "code", "gl:relations:item:read", "name", "查看"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         int role = createRole(admin, "viewer");
         assertThat(post("/role/update", Map.of("id", role, "name", "renamed-viewer"), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         grant(admin, role, List.of(), List.of(permission));
@@ -355,22 +417,9 @@ class IdentityHttpTest {
         assertThat(post("/permission/delete", Map.of("id", permission), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(post("/role/delete", Map.of("id", role), admin).getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.sys_permission WHERE id=?", Integer.class, permission)).isZero();
-        int builtIn = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='system:user:list'", Integer.class);
+        int builtIn = jdbc.queryForObject("SELECT id FROM relations.sys_permission WHERE code='gl:system:user:list'", Integer.class);
         assertThat(post("/permission/update", Map.of("id", builtIn, "code", "changed", "name", "改名"), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(post("/permission/delete", Map.of("id", builtIn), admin).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-    }
-
-    @Test
-    void administratorBootstrapIsExplicitAndIdempotent() {
-        jdbc.update("DELETE FROM relations.sys_user");
-        var args = new DefaultApplicationArguments(new String[0]);
-        new BootstrapAdminRunner(new BootstrapAdminProperties(null, null, null, null), validator, users).run(args);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.sys_user", Integer.class)).isZero();
-        var configured = new BootstrapAdminRunner(new BootstrapAdminProperties("initial", "initial@example.test", "13800000011", "initial-admin-password"), validator, users);
-        configured.run(args); configured.run(args);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM relations.sys_user WHERE is_super_admin=TRUE", Integer.class)).isEqualTo(1);
-        String token = login("initial@example.test", "initial-admin-password");
-        assertThat(get("/user/list", token).getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

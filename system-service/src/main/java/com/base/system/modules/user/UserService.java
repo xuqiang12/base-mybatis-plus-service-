@@ -48,8 +48,8 @@ public class UserService {
     // 创建用户与分配角色必须在同一事务中完成。
     @Transactional
     public String create(UserRequests.Create request, LoginUser operator) {
-        if (Boolean.TRUE.equals(request.isSuperAdmin()) && !operator.isSuperAdmin()) {
-            throw new BusinessException(403, "只有超级管理员可以设置管理员身份");
+        if (!operator.isSuperAdmin() && (request.roleIds() != null || request.isSuperAdmin() != null)) {
+            throw new BusinessException(403, "只有超级管理员可以分配角色或设置管理员身份");
         }
         insertUser(request);
         return "用户新增成功";
@@ -77,7 +77,10 @@ public class UserService {
     @Transactional
     public String update(UserRequests.Update request, LoginUser operator) {
         var user = activeUser(request.id());
-        if (!operator.isSuperAdmin() && (Boolean.TRUE.equals(user.getIsSuperAdmin()) || Boolean.TRUE.equals(request.isSuperAdmin()))) {
+        if (!operator.isSuperAdmin() && (request.roleIds() != null || request.isSuperAdmin() != null)) {
+            throw new BusinessException(403, "只有超级管理员可以分配角色或设置管理员身份");
+        }
+        if (!operator.isSuperAdmin() && Boolean.TRUE.equals(user.getIsSuperAdmin())) {
             throw new BusinessException(403, "只有超级管理员可以修改管理员身份");
         }
         if (Boolean.FALSE.equals(request.isSuperAdmin())) { protectLastAdmin(user); }
@@ -117,13 +120,6 @@ public class UserService {
                 .set(UserEntity::getPhone, request.phone()).set(UserEntity::getUpdatedAt, Instant.now()));
         if (updated == 0) { throw new BusinessException(401, "用户不存在或已停用"); }
         return "手机号绑定成功";
-    }
-
-    // 仅在空用户库且显式给出初始化信息时建立首个管理员。
-    @Transactional
-    public void bootstrap(String username, String email, String phone, String password) {
-        if (users.selectCount(null) != 0) { return; }
-        insertUser(new UserRequests.Create(username, email, phone, password, null, true, List.of()));
     }
 
     private UserEntity activeUser(int id) {

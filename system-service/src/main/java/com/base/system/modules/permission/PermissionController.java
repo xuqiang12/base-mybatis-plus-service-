@@ -18,15 +18,15 @@ import java.util.List;
 public class PermissionController {
     private final PermissionService service;
     @GetMapping("/list")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:permission:list')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:gl:system:permission:list')")
     public List<PermissionEntity> list() { return service.list(); }
     @PostMapping("/create")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:permission:add')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
     public String create(@Valid @RequestBody PermissionRequests.Create request) { return service.create(request); }
     @PostMapping("/update")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:permission:edit')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
     public String update(@Valid @RequestBody PermissionRequests.Update request) { return service.update(request); }
     @PostMapping("/delete")
-    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('permission:system:permission:delete')")
+    @PreAuthorize("hasAuthority('ROLE_SUPER_ADMIN')")
     public String delete(@Valid @RequestBody IdRequest request) { return service.delete(request.id()); }
 }

@@ -3,7 +3,7 @@
 # IDEA 程序参数加 --spring.profiles.active=local，密钥路径按实际位置填写。
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/relations
+    url: jdbc:postgresql://localhost:5432/gift_ledger
     username: relations
     password: ""
   mail:
@@ -20,11 +20,6 @@ app:
     test-mode: false # 本机临时跳过发码、使用 123456 注册时改为 true
     from: "" # 通常与 spring.mail.username 相同
     code-secret: "" # 独立随机密钥，至少 32 字节；不可复用邮箱授权码
-  bootstrap-admin:
-    username: admin
-    email: ""
-    phone: ""
-    password: "" # 首次空库初始化；8 至 72 个字符，仅支持英文字母、数字和英文半角符号，不能包含空格
 springdoc:
   api-docs:
     enabled: true

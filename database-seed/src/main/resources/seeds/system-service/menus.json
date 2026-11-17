@@ -1,0 +1,56 @@
+[
+  {
+    "name": "首页",
+    "path": "/home/index",
+    "parentPath": null,
+    "component": "/home/index",
+    "icon": "HomeFilled",
+    "sort": 0,
+    "type": "PAGE"
+  },
+  {
+    "name": "系统管理",
+    "path": "/system",
+    "parentPath": null,
+    "component": "Layout",
+    "icon": "Setting",
+    "sort": 10,
+    "type": "DIRECTORY"
+  },
+  {
+    "name": "用户管理",
+    "path": "/system/user/index",
+    "parentPath": "/system",
+    "component": "/system/user/index",
+    "icon": "User",
+    "sort": 1,
+    "type": "PAGE"
+  },
+  {
+    "name": "角色管理",
+    "path": "/system/role/index",
+    "parentPath": "/system",
+    "component": "/system/role/index",
+    "icon": "UserFilled",
+    "sort": 2,
+    "type": "PAGE"
+  },
+  {
+    "name": "菜单管理",
+    "path": "/system/menu/index",
+    "parentPath": "/system",
+    "component": "/system/menu/index",
+    "icon": "Menu",
+    "sort": 3,
+    "type": "PAGE"
+  },
+  {
+    "name": "关于项目",
+    "path": "/about/index",
+    "parentPath": null,
+    "component": "/about/index",
+    "icon": "InfoFilled",
+    "sort": 99,
+    "type": "PAGE"
+  }
+]

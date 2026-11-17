@@ -7,13 +7,13 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
- * 邮箱或手机号密码登录请求参数。
+ * 用户名、邮箱或手机号密码登录请求参数。
  */
 @Data
-@Schema(description = "邮箱或手机号密码登录请求")
+@Schema(description = "用户名、邮箱或手机号密码登录请求")
 public class LoginRequest {
 
-    @Schema(description = "登录账号，可以是邮箱或手机号；兼容原email字段")
+    @Schema(description = "登录账号，可以是用户名、邮箱或手机号；兼容原email字段")
     @NotBlank(message = "登录账号不能为空")
     @Size(max = 254, message = "登录账号不能超过254个字符")
     @JsonAlias("email")

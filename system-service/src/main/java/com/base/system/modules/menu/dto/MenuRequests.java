@@ -14,7 +14,7 @@ public final class MenuRequests {
             @Size(max = 500, message = "菜单路径不能超过500个字符") String path,
             @Size(max = 500, message = "组件路径不能超过500个字符") String component,
             @Size(max = 100, message = "图标名称不能超过100个字符") String icon, Integer sort,
-            @NotNull(message = "请选择菜单类型") MenuType type) {}
+            @NotNull(message = "请选择菜单类型") MenuType type, Boolean hidden) {}
     @Getter
     @Setter
     public static class Update {
@@ -26,6 +26,7 @@ public final class MenuRequests {
         @Size(max = 100, message = "图标名称不能超过100个字符") private String icon;
         private Integer sort;
         private MenuType type;
+        private Boolean hidden;
         @JsonIgnore private boolean parentIdProvided;
 
         // 区分未提交父级和显式 null，允许把子菜单移到顶级。
@@ -35,10 +36,10 @@ public final class MenuRequests {
         }
     }
     public record CreateButton(@NotNull(message = "请选择所属菜单") @Positive(message = "菜单编号无效") Integer menuId,
-            @NotBlank(message = "权限码不能为空") @Size(max = 150, message = "权限码不能超过150个字符") String permissionCode,
+            @NotBlank(message = "权限码不能为空") @Size(max = 150, message = "权限码不能超过150个字符") @Pattern(regexp = "^gl:[a-z0-9]+:[a-z0-9]+:[a-z0-9]+$", message = "权限码格式为 gl:模块:资源:操作") String permissionCode,
             @NotBlank(message = "按钮名称不能为空") @Size(max = 100, message = "按钮名称不能超过100个字符") String name, Integer sort) {}
     public record UpdateButton(@NotNull(message = "请选择要修改的按钮") @Positive(message = "按钮编号无效") Integer id,
             @NotNull(message = "请选择所属菜单") @Positive(message = "菜单编号无效") Integer menuId,
-            @NotBlank(message = "权限码不能为空") @Size(max = 150, message = "权限码不能超过150个字符") String permissionCode,
+            @NotBlank(message = "权限码不能为空") @Size(max = 150, message = "权限码不能超过150个字符") @Pattern(regexp = "^gl:[a-z0-9]+:[a-z0-9]+:[a-z0-9]+$", message = "权限码格式为 gl:模块:资源:操作") String permissionCode,
             @NotBlank(message = "按钮名称不能为空") @Size(max = 100, message = "按钮名称不能超过100个字符") String name, Integer sort) {}
 }
