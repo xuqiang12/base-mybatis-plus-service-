@@ -27,6 +27,8 @@
 
 `SystemSeedService` 在同一事务中写入默认数据和 `relations.sys_seed_history`。已有 `system-base/1`、`admin-account/1` 历史继续复用；重复执行直接跳过，不恢复人工删除的授权、不覆盖修改后的密码和菜单。JSON 是首次默认值，修改它不会更新已完成的批次。
 
+运营配置位于同目录的 `cms/`，由 `CmsSeedService` 维护首页方案及组件、页面绑定、默认底部导航，以及运营菜单/权限/按钮。独立记录 `cms-home/1`、`cms-tabbar/1`、`cms-management/1`，已存在内容保留，重复跳过，不为已有角色增加授权。详见 [运营配置与初始化](../docs/运营配置与初始化.md)。
+
 ## 运行与依赖
 
 入口为 `com.base.seed.SeedApplication`。只扫描 `com.base.seed`，无 Web 服务，运行结束关闭连接池。依赖 `system-service` 的普通 JAR 复用 Flyway SQL 与 Java 迁移，避免另一套表结构；不会运行 `SystemApplication`。

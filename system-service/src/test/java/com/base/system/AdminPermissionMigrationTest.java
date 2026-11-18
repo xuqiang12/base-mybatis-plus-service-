@@ -36,7 +36,7 @@ class AdminPermissionMigrationTest {
 
         var upgraded = Flyway.configure().dataSource(datasource).defaultSchema("relations").schemas("relations")
                 .locations("classpath:db/system").load();
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(3);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(4);
         // 初始化会添加后台按钮，原按钮及其 ID、权限关联必须仍然存在。
         for (int i = 0; i < tables.size(); i++) {
             var rows = jdbc.queryForList("SELECT * FROM relations." + tables.get(i) + " ORDER BY 1");

@@ -1,0 +1,76 @@
+[
+  {
+    "code": "ledger-home",
+    "name": "礼账首页",
+    "scene": "homePage",
+    "status": 1,
+    "components": [
+      {
+        "templateId": "homePageTitle",
+        "templateName": "首页头部",
+        "sortNo": 0,
+        "status": 1,
+        "info": {
+          "bgColor": "#eee8da",
+          "textColor": "#332e28",
+          "leftIconMode": "hidden",
+          "showLocation": false,
+          "placeholder": "攒多多账本",
+          "rollingWords": [],
+          "sizeUnit": "rpx"
+        }
+      },
+      {
+        "templateId": "notice",
+        "templateName": "账本提示",
+        "sortNo": 1,
+        "status": 1,
+        "info": {
+          "bgColor": "#fff8e8",
+          "list": [
+            {
+              "id": "welcome",
+              "text": "记好每一笔，留住每一份人情。"
+            }
+          ],
+          "sizeUnit": "rpx",
+          "color": "#6b5640"
+        }
+      },
+      {
+        "templateId": "cube",
+        "templateName": "常用入口",
+        "sortNo": 2,
+        "status": 1,
+        "info": {
+          "sizeUnit": "rpx",
+          "list": [
+            {
+              "id": "friends",
+              "title": "亲友",
+              "imgUrl": "static/family/tabbar/friends-normal.png",
+              "path": "/pages/category/index",
+              "param": {}
+            },
+            {
+              "id": "household",
+              "title": "收支",
+              "imgUrl": "static/family/tabbar/loans-normal.png",
+              "path": "/pages/tools/index",
+              "param": {}
+            },
+            {
+              "id": "mine",
+              "title": "我的",
+              "imgUrl": "static/family/tabbar/mine-normal.png",
+              "path": "/pages/mine/index",
+              "param": {}
+            }
+          ],
+          "bkColor": "#ffffff",
+          "iconType": "THREE_ROW"
+        }
+      }
+    ]
+  }
+]

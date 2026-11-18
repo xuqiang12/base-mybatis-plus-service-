@@ -1,0 +1,50 @@
+[
+  {
+    "code": "gl:cms:home:list",
+    "name": "查看首页装修"
+  },
+  {
+    "code": "gl:cms:home:add",
+    "name": "新增首页装修"
+  },
+  {
+    "code": "gl:cms:home:edit",
+    "name": "修改首页装修"
+  },
+  {
+    "code": "gl:cms:home:delete",
+    "name": "删除首页装修"
+  },
+  {
+    "code": "gl:cms:page:list",
+    "name": "查看页面配置"
+  },
+  {
+    "code": "gl:cms:page:add",
+    "name": "新增页面配置"
+  },
+  {
+    "code": "gl:cms:page:edit",
+    "name": "修改页面配置"
+  },
+  {
+    "code": "gl:cms:page:delete",
+    "name": "删除页面配置"
+  },
+  {
+    "code": "gl:cms:tabbar:list",
+    "name": "查看底部导航"
+  },
+  {
+    "code": "gl:cms:tabbar:add",
+    "name": "新增底部导航"
+  },
+  {
+    "code": "gl:cms:tabbar:edit",
+    "name": "修改底部导航"
+  },
+  {
+    "code": "gl:cms:tabbar:delete",
+    "name": "删除底部导航"
+  }
+]

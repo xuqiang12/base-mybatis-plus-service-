@@ -16,7 +16,7 @@ class SeedApplicationTest {
         SeedApplication.main(new String[]{"--spring.datasource.url=" + url,
                 "--spring.datasource.username=sa", "--spring.datasource.password=",
                 "--app.seed-admin.email=main@example.test", "--app.seed-admin.password=seed-test-password"});
-        assertThat(output).contains("执行 2 个新模块版本", "Shutdown completed");
+        assertThat(output).contains("执行 5 个新模块版本", "Shutdown completed");
 
         SeedApplication.main(new String[]{"--spring.datasource.url=" + url,
                 "--spring.datasource.username=sa", "--spring.datasource.password="});

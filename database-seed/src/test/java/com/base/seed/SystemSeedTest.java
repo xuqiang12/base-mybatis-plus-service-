@@ -34,6 +34,7 @@ class SystemSeedTest {
         }
         jdbc.update("UPDATE relations.sys_menu SET parent_id=NULL");
         jdbc.update("DELETE FROM relations.sys_menu");
+        jdbc.update("DELETE FROM relations.sys_permission WHERE code LIKE 'gl:cms:%'");
     }
 
     @Test

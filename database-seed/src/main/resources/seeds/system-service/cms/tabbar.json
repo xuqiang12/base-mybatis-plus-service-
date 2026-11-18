@@ -1,0 +1,55 @@
+[
+  {
+    "code": "ledger-default",
+    "name": "礼账默认导航",
+    "status": 1,
+    "config": {
+      "tabBarMode": "custom",
+      "bgColorMode": "custom",
+      "bgColor": "#eee8da",
+      "textColorMode": "custom",
+      "textColor": "#808080",
+      "activeColor": "#f05656",
+      "radiusMode": "round",
+      "rootPagePath": "/pages/index/index",
+      "items": [
+        {
+          "id": "home",
+          "name": "首页",
+          "icon": "static/family/tabbar/home-normal.png",
+          "activeIcon": "static/family/tabbar/home-active.png",
+          "linkType": "page",
+          "pagePath": "/pages/index/index",
+          "sortNo": 0
+        },
+        {
+          "id": "friends",
+          "name": "亲友",
+          "icon": "static/family/tabbar/friends-normal.png",
+          "activeIcon": "static/family/tabbar/friends-active.png",
+          "linkType": "page",
+          "pagePath": "/pages/category/index",
+          "sortNo": 1
+        },
+        {
+          "id": "household",
+          "name": "收支",
+          "icon": "static/family/tabbar/loans-normal.png",
+          "activeIcon": "static/family/tabbar/loans-active.png",
+          "linkType": "page",
+          "pagePath": "/pages/tools/index",
+          "sortNo": 2
+        },
+        {
+          "id": "mine",
+          "name": "我的",
+          "icon": "static/family/tabbar/mine-normal.png",
+          "activeIcon": "static/family/tabbar/mine-active.png",
+          "linkType": "page",
+          "pagePath": "/pages/mine/index",
+          "sortNo": 3
+        }
+      ]
+    }
+  }
+]

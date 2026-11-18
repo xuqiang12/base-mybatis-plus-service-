@@ -1,0 +1,74 @@
+[
+  {
+    "menuPath": "/cms/home/index",
+    "permissionCode": "gl:cms:home:list",
+    "name": "查看",
+    "sort": 0
+  },
+  {
+    "menuPath": "/cms/home/index",
+    "permissionCode": "gl:cms:home:add",
+    "name": "新增",
+    "sort": 1
+  },
+  {
+    "menuPath": "/cms/home/index",
+    "permissionCode": "gl:cms:home:edit",
+    "name": "修改",
+    "sort": 2
+  },
+  {
+    "menuPath": "/cms/home/index",
+    "permissionCode": "gl:cms:home:delete",
+    "name": "删除",
+    "sort": 3
+  },
+  {
+    "menuPath": "/cms/page/index",
+    "permissionCode": "gl:cms:page:list",
+    "name": "查看",
+    "sort": 0
+  },
+  {
+    "menuPath": "/cms/page/index",
+    "permissionCode": "gl:cms:page:add",
+    "name": "新增",
+    "sort": 1
+  },
+  {
+    "menuPath": "/cms/page/index",
+    "permissionCode": "gl:cms:page:edit",
+    "name": "修改",
+    "sort": 2
+  },
+  {
+    "menuPath": "/cms/page/index",
+    "permissionCode": "gl:cms:page:delete",
+    "name": "删除",
+    "sort": 3
+  },
+  {
+    "menuPath": "/cms/tabbar/index",
+    "permissionCode": "gl:cms:tabbar:list",
+    "name": "查看",
+    "sort": 0
+  },
+  {
+    "menuPath": "/cms/tabbar/index",
+    "permissionCode": "gl:cms:tabbar:add",
+    "name": "新增",
+    "sort": 1
+  },
+  {
+    "menuPath": "/cms/tabbar/index",
+    "permissionCode": "gl:cms:tabbar:edit",
+    "name": "修改",
+    "sort": 2
+  },
+  {
+    "menuPath": "/cms/tabbar/index",
+    "permissionCode": "gl:cms:tabbar:delete",
+    "name": "删除",
+    "sort": 3
+  }
+]

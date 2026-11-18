@@ -1,0 +1,38 @@
+[
+  {
+    "name": "运营管理",
+    "path": "/cms",
+    "parentPath": null,
+    "component": "Layout",
+    "icon": "Brush",
+    "sort": 20,
+    "type": "DIRECTORY"
+  },
+  {
+    "name": "首页装修",
+    "path": "/cms/home/index",
+    "parentPath": "/cms",
+    "component": "/cms/home/index",
+    "icon": "Brush",
+    "sort": 0,
+    "type": "PAGE"
+  },
+  {
+    "name": "页面配置",
+    "path": "/cms/page/index",
+    "parentPath": "/cms",
+    "component": "/cms/page/index",
+    "icon": "Document",
+    "sort": 1,
+    "type": "PAGE"
+  },
+  {
+    "name": "底部导航",
+    "path": "/cms/tabbar/index",
+    "parentPath": "/cms",
+    "component": "/cms/tabbar/index",
+    "icon": "Menu",
+    "sort": 2,
+    "type": "PAGE"
+  }
+]
